@@ -129,8 +129,21 @@ app.get("/consulta-radar", async (req, res) => {
       });
     }
 
-    const url = `${URL_RADAR}?token=${INFOSIMPLES_TOKEN}&cnpj=${cnpj}`;
-    const resp = await fetch(url);
+    // Monta o corpo da requisição (POST x-www-form-urlencoded)
+    const params = new URLSearchParams();
+    params.append("cnpj", cnpj);
+    params.append("token", INFOSIMPLES_TOKEN);
+    params.append("timeout", "300"); // timeout da API Infosimples (300 segundos)
+
+    // IMPORTANTE: timeout local de 300000 ms (5 minutos)
+    const resp = await fetch(URL_RADAR, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+      timeout: 300000, // 300s => evita cortar a resposta antes da Infosimples
+    });
 
     if (!resp.ok) {
       return res
@@ -146,10 +159,8 @@ app.get("/consulta-radar", async (req, res) => {
     const rawData = json && json.data;
 
     if (Array.isArray(rawData)) {
-      // data é array normal
       dados = rawData[0] || null;
     } else if (rawData && typeof rawData === "object") {
-      // data é objeto com chave "0" ou 0 ou já vem direto
       dados = rawData[0] || rawData["0"] || rawData;
     }
 
