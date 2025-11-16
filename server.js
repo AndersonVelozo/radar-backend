@@ -29,7 +29,10 @@ const STORAGE_KEY = "radar_registros_habilitacao";
 
 // agora o registro guarda também os campos cadastrais
 // e Município + UF separados
-let registros = []; // { cnpj, contribuinte, situacao, dataSituacao, submodalidade, razaoSocial, nomeFantasia, municipio, uf, dataConstituicao, regimeTributario, capitalSocial }
+// { cnpj, contribuinte, situacao, dataSituacao, submodalidade,
+//   razaoSocial, nomeFantasia, municipio, uf,
+//   dataConstituicao, regimeTributario, capitalSocial }
+let registros = [];
 
 function salvarNoLocalStorage() {
   try {
@@ -234,19 +237,61 @@ async function consultarRadarPorCnpj(cnpj) {
   return data; // { contribuinte, situacao, dataSituacao, submodalidade }
 }
 
-// ReceitaWS – backend já devolve campos prontos
-async function consultarReceitaWs(cnpj) {
-  const resp = await fetch(
-    `${BACKEND_BASE_URL}/consulta-receitaws?cnpj=${encodeURIComponent(cnpj)}`
-  );
+// --------- ReceitaWS – backend já devolve campos prontos (com retry) ---------
+async function consultarReceitaWsComRetry(cnpj, maxTentativas = 3) {
+  let ultimoErro = null;
 
-  if (!resp.ok) {
-    throw new Error("Erro ao consultar backend (ReceitaWS)");
+  for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
+    try {
+      const resp = await fetch(
+        `${BACKEND_BASE_URL}/consulta-receitaws?cnpj=${encodeURIComponent(
+          cnpj
+        )}`
+      );
+
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}`);
+      }
+
+      const dados = await resp.json();
+      console.log(
+        `ReceitaWS OK (tentativa ${tentativa}/${maxTentativas}) para`,
+        cnpj,
+        dados
+      );
+
+      // Validação mínima: se nem razão social vier, considero falha
+      if (!dados || !dados.razaoSocial) {
+        throw new Error("Resposta da ReceitaWS incompleta");
+      }
+
+      return dados; // sucesso
+    } catch (e) {
+      ultimoErro = e;
+      console.warn(
+        `Falha ReceitaWS (tentativa ${tentativa}/${maxTentativas}) para ${cnpj}:`,
+        e
+      );
+
+      // Se ainda tem tentativas, espera um pouco antes de tentar de novo
+      if (tentativa < maxTentativas) {
+        // backoff simples: 1500ms, depois 3000ms, depois 4500ms...
+        const delayMs = 1500 * tentativa;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
   }
 
-  const dados = await resp.json();
-  console.log("Resposta ReceitaWS backend para", cnpj, dados);
-  return dados;
+  console.error(
+    `Todas as tentativas da ReceitaWS falharam para ${cnpj}:`,
+    ultimoErro
+  );
+  return null; // para ser tratado no processarLoteCnpjs
+}
+
+// Versão simples que reaproveita o retry (usada em reconsultarErros e outros pontos)
+async function consultarReceitaWs(cnpj) {
+  return consultarReceitaWsComRetry(cnpj);
 }
 
 // ---------- PROCESSAR LOTE ----------
@@ -269,12 +314,15 @@ async function processarLoteCnpjs(cnpjs) {
         console.error("Falha RADAR no lote para", cnpj, e);
       }
 
-      // --- ReceitaWS ---
-      try {
-        receita = await consultarReceitaWs(cnpj);
+      // --- ReceitaWS (com retry) ---
+      receita = await consultarReceitaWsComRetry(cnpj);
+      if (receita) {
         console.log("ReceitaWS lote OK para", cnpj, receita);
-      } catch (e) {
-        console.error("Falha ReceitaWS no lote para", cnpj, e);
+      } else {
+        console.warn(
+          "ReceitaWS falhou mesmo após múltiplas tentativas para",
+          cnpj
+        );
       }
 
       // ------- MONTAR CAMPOS DE CADASTRO (Receita) -------
@@ -354,7 +402,7 @@ async function processarLoteCnpjs(cnpjs) {
       atualizarProgressoLote(processados, total);
 
       // Pequeno delay para não estourar limite da API (ajuste se quiser)
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 }
@@ -401,12 +449,33 @@ extractAddBtn.addEventListener("click", async () => {
     return;
   }
 
-  const extras = await consultarReceitaWs(cnpj);
+  const extras = await consultarReceitaWsComRetry(cnpj);
 
-  const nomeFantasiaFront =
-    extras.nomeFantasia && extras.nomeFantasia.trim().length > 0
-      ? extras.nomeFantasia.trim()
-      : "Sem nome fantasia";
+  let razaoSocial = "";
+  let nomeFantasiaFront = "";
+  let municipio = "";
+  let uf = "";
+  let dataConstituicao = "";
+  let regimeTributario = "";
+  let capitalSocial = "";
+
+  if (!extras) {
+    alert(
+      "Não foi possível obter os dados cadastrais pela ReceitaWS mesmo após várias tentativas.\n" +
+        "Os dados de habilitação do RADAR foram adicionados, mas os campos cadastrais ficarão vazios."
+    );
+  } else {
+    razaoSocial = extras.razaoSocial || "";
+    nomeFantasiaFront =
+      extras.nomeFantasia && extras.nomeFantasia.trim().length > 0
+        ? extras.nomeFantasia.trim()
+        : "Sem nome fantasia";
+    municipio = extras.municipio || "";
+    uf = extras.uf || "";
+    dataConstituicao = extras.dataConstituicao || "";
+    regimeTributario = extras.regimeTributario || "";
+    capitalSocial = extras.capitalSocial || "";
+  }
 
   adicionarLinhaTabela(
     cnpj,
@@ -414,13 +483,13 @@ extractAddBtn.addEventListener("click", async () => {
     situacao,
     dataSituacao,
     submodalidade,
-    extras.razaoSocial || "",
+    razaoSocial,
     nomeFantasiaFront,
-    extras.municipio || "",
-    extras.uf || "",
-    extras.dataConstituicao || "",
-    extras.regimeTributario || "",
-    extras.capitalSocial || ""
+    municipio,
+    uf,
+    dataConstituicao,
+    regimeTributario,
+    capitalSocial
   );
 
   rawText.value = "";
