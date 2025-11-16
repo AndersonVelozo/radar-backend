@@ -247,7 +247,7 @@ async function consultarRadarPorCnpj(cnpj) {
 
 // --------- ReceitaWS – backend já devolve campos prontos (com retry) ---------
 // --------- ReceitaWS – backend já devolve campos prontos (com retry) ---------
-async function consultarReceitaWsComRetry(cnpj, maxTentativas = 5) {
+async function consultarReceitaWsComRetry(cnpj, maxTentativas = 10) {
   let ultimoErro = null;
 
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
@@ -269,12 +269,11 @@ async function consultarReceitaWsComRetry(cnpj, maxTentativas = 5) {
         dados
       );
 
-      // Validação mínima: se nem razão social vier, considero falha
       if (!dados || !dados.razaoSocial) {
         throw new Error("Resposta da ReceitaWS incompleta");
       }
 
-      return dados; // sucesso
+      return dados;
     } catch (e) {
       ultimoErro = e;
       console.warn(
@@ -282,9 +281,7 @@ async function consultarReceitaWsComRetry(cnpj, maxTentativas = 5) {
         e
       );
 
-      // Se ainda tem tentativas, espera um pouco antes de tentar de novo
       if (tentativa < maxTentativas) {
-        // backoff simples: 1500ms, depois 3000ms, 4500ms, 6000ms, 7500ms...
         const delayMs = 1500 * tentativa;
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
@@ -295,7 +292,7 @@ async function consultarReceitaWsComRetry(cnpj, maxTentativas = 5) {
     `Todas as tentativas da ReceitaWS falharam para ${cnpj}:`,
     ultimoErro
   );
-  return null; // para ser tratado no processarLoteCnpjs
+  return null;
 }
 
 // Versão simples que reaproveita o retry (usada em reconsultarErros e outros pontos)
