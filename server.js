@@ -238,7 +238,8 @@ async function consultarRadarPorCnpj(cnpj) {
 }
 
 // --------- ReceitaWS – backend já devolve campos prontos (com retry) ---------
-async function consultarReceitaWsComRetry(cnpj, maxTentativas = 3) {
+// --------- ReceitaWS – backend já devolve campos prontos (com retry) ---------
+async function consultarReceitaWsComRetry(cnpj, maxTentativas = 5) {
   let ultimoErro = null;
 
   for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
@@ -275,7 +276,7 @@ async function consultarReceitaWsComRetry(cnpj, maxTentativas = 3) {
 
       // Se ainda tem tentativas, espera um pouco antes de tentar de novo
       if (tentativa < maxTentativas) {
-        // backoff simples: 1500ms, depois 3000ms, depois 4500ms...
+        // backoff simples: 1500ms, depois 3000ms, 4500ms, 6000ms, 7500ms...
         const delayMs = 1500 * tentativa;
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
@@ -497,57 +498,95 @@ extractAddBtn.addEventListener("click", async () => {
 
 // ---------- RECONSULTAR ERROS ----------
 async function reconsultarErros() {
-  // Só reconsulta quem realmente continua SEM dados de habilitação
-  const erros = registros.filter((r) => {
-    const sit = (r.situacao || "").toUpperCase();
-    const semDadosHabilitacao =
-      !r.contribuinte && !r.dataSituacao && !r.submodalidade;
-
-    return (
-      (sit === "ERRO" || r.contribuinte === "(erro na consulta)") &&
-      semDadosHabilitacao
+  // Helpers
+  const temHabilitacao = (r) =>
+    !!(
+      (r.contribuinte && r.contribuinte.trim().length > 0) ||
+      (r.dataSituacao && r.dataSituacao.trim().length > 0) ||
+      (r.submodalidade && r.submodalidade.trim().length > 0)
     );
-  });
 
-  if (!erros.length) {
-    alert("Não há registros com ERRO para reconsultar.");
+  const temCadastro = (r) =>
+    !!(r.razaoSocial && r.razaoSocial.trim().length > 0);
+
+  const isErroFlag = (r) => {
+    const sit = (r.situacao || "").toUpperCase();
+    return sit === "ERRO" || r.contribuinte === "(erro na consulta)";
+  };
+
+  // 1) Sem habilitação E sem cadastro -> erro "hard" -> reconsulta RADAR + Receita
+  const faltandoTudo = registros.filter(
+    (r) => !temHabilitacao(r) && !temCadastro(r) && isErroFlag(r)
+  );
+
+  // 2) Sem habilitação, MAS com cadastro -> só RADAR (Infosimples)
+  const faltandoRadar = registros.filter(
+    (r) => !temHabilitacao(r) && temCadastro(r)
+  );
+
+  // 3) Com habilitação, MAS sem cadastro -> só ReceitaWS
+  const faltandoReceita = registros.filter(
+    (r) => temHabilitacao(r) && !temCadastro(r)
+  );
+
+  const total =
+    faltandoTudo.length + faltandoRadar.length + faltandoReceita.length;
+
+  if (!total) {
+    alert(
+      "Não há registros com falha de habilitação ou de dados cadastrais para reconsultar."
+    );
     return;
   }
 
   if (
     !confirm(
-      `Foram encontrados ${erros.length} registros com ERRO. Deseja tentar consultar novamente estes CNPJs?`
+      `Serão reconsultados ${total} registros:\n` +
+        `- ${faltandoTudo.length} sem habilitação e sem cadastro (RADAR + Receita)\n` +
+        `- ${faltandoRadar.length} com cadastro mas sem habilitação (somente RADAR)\n` +
+        `- ${faltandoReceita.length} com habilitação mas sem cadastro (somente Receita)`
     )
   ) {
     return;
   }
 
-  const total = erros.length;
   let processados = 0;
   atualizarProgressoLote(0, total);
 
-  for (const reg of erros) {
+  // --- 1) Reconsultar RADAR + Receita (faltandoTudo) ---
+  for (const reg of faltandoTudo) {
     try {
       let radar = null;
       let receita = null;
 
-      // --- RADAR ---
+      // RADAR
       try {
         radar = await consultarRadarPorCnpj(reg.cnpj);
-        console.log("RADAR (reconsulta) OK para", reg.cnpj, radar);
+        console.log("RADAR (reconsulta ambos) OK para", reg.cnpj, radar);
       } catch (e) {
-        console.error("Falha RADAR na reconsulta para", reg.cnpj, e);
+        console.error("Falha RADAR (reconsulta ambos) para", reg.cnpj, e);
       }
 
-      // --- ReceitaWS ---
+      // Receita (com retry)
       try {
-        receita = await consultarReceitaWs(reg.cnpj);
-        console.log("ReceitaWS (reconsulta) OK para", reg.cnpj, receita);
+        receita = await consultarReceitaWsComRetry(reg.cnpj);
+        if (receita) {
+          console.log(
+            "ReceitaWS (reconsulta ambos) OK para",
+            reg.cnpj,
+            receita
+          );
+        } else {
+          console.warn(
+            "ReceitaWS (reconsulta ambos) falhou mesmo com retry para",
+            reg.cnpj
+          );
+        }
       } catch (e) {
-        console.error("Falha ReceitaWS na reconsulta para", reg.cnpj, e);
+        console.error("Falha ReceitaWS (reconsulta ambos) para", reg.cnpj, e);
       }
 
-      // Atualiza campos de habilitação se RADAR respondeu
+      // Atualiza habilitação se RADAR respondeu
       if (radar) {
         reg.contribuinte = radar.contribuinte || "";
         reg.situacao = radar.situacao || "";
@@ -555,7 +594,7 @@ async function reconsultarErros() {
         reg.submodalidade = radar.submodalidade || "";
       }
 
-      // Atualiza dados cadastrais se Receita respondeu
+      // Atualiza cadastro se Receita respondeu
       if (receita) {
         const nomeFantasiaFront =
           receita.nomeFantasia && receita.nomeFantasia.trim().length > 0
@@ -572,14 +611,87 @@ async function reconsultarErros() {
       }
 
       // Se RADAR respondeu, deixa de ser ERRO
-      if (radar) {
-        const sitUpper = (reg.situacao || "").toUpperCase();
-        if (sitUpper === "ERRO") {
-          reg.situacao = radar.situacao || "";
-        }
+      if (radar && isErroFlag(reg)) {
+        reg.situacao = radar.situacao || "";
       }
     } catch (err) {
-      console.error("Erro inesperado ao reconsultar CNPJ", reg.cnpj, err);
+      console.error(
+        "Erro inesperado ao reconsultar (ambos) CNPJ",
+        reg.cnpj,
+        err
+      );
+    } finally {
+      processados++;
+      atualizarProgressoLote(processados, total);
+    }
+  }
+
+  // --- 2) Reconsultar apenas RADAR (faltandoRadar) ---
+  for (const reg of faltandoRadar) {
+    try {
+      let radar = null;
+
+      try {
+        radar = await consultarRadarPorCnpj(reg.cnpj);
+        console.log("RADAR (reconsulta só RADAR) OK para", reg.cnpj, radar);
+      } catch (e) {
+        console.error("Falha RADAR (reconsulta só RADAR) para", reg.cnpj, e);
+      }
+
+      if (radar) {
+        reg.contribuinte = radar.contribuinte || "";
+        reg.situacao = radar.situicao || radar.situacao || reg.situacao || "";
+        reg.dataSituacao = radar.dataSituacao || "";
+        reg.submodalidade = radar.submodalidade || "";
+      }
+    } catch (err) {
+      console.error(
+        "Erro inesperado ao reconsultar só RADAR para CNPJ",
+        reg.cnpj,
+        err
+      );
+    } finally {
+      processados++;
+      atualizarProgressoLote(processados, total);
+    }
+  }
+
+  // --- 3) Reconsultar apenas Receita (faltandoReceita) ---
+  for (const reg of faltandoReceita) {
+    try {
+      const receita = await consultarReceitaWsComRetry(reg.cnpj);
+
+      if (receita) {
+        console.log(
+          "ReceitaWS (reconsulta só cadastro) OK para",
+          reg.cnpj,
+          receita
+        );
+
+        const nomeFantasiaFront =
+          receita.nomeFantasia && receita.nomeFantasia.trim().length > 0
+            ? receita.nomeFantasia.trim()
+            : "Sem nome fantasia";
+
+        reg.razaoSocial = receita.razaoSocial || "";
+        reg.nomeFantasia = nomeFantasiaFront;
+        reg.municipio = receita.municipio || "";
+        reg.uf = receita.uf || "";
+        reg.dataConstituicao = receita.dataConstituicao || "";
+        reg.regimeTributario = receita.regimeTributario || "";
+        reg.capitalSocial = receita.capitalSocial || "";
+      } else {
+        console.warn(
+          "ReceitaWS (reconsulta só cadastro) falhou para",
+          reg.cnpj
+        );
+      }
+    } catch (err) {
+      console.error(
+        "Erro inesperado ao reconsultar só Receita para CNPJ",
+        reg.cnpj,
+        err
+      );
     } finally {
       processados++;
       atualizarProgressoLote(processados, total);
