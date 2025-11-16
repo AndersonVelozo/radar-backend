@@ -760,12 +760,35 @@ async function reconsultarErros() {
 
 retryErrorsBtn.addEventListener("click", reconsultarErros);
 
-// ---------- LIMPAR TABELA ----------
+// ---------- LIMPAR TABELA (COM MODAL BONITO) ----------
+const confirmClearOverlay = document.getElementById("confirmClearOverlay");
+const confirmClearBtn = document.getElementById("confirmClear");
+const cancelClearBtn = document.getElementById("cancelClear");
+
 clearTableBtn.addEventListener("click", () => {
+  // abre o modal
+  confirmClearOverlay.classList.remove("hidden");
+});
+
+// cancelar -> apenas fecha o modal
+cancelClearBtn.addEventListener("click", () => {
+  confirmClearOverlay.classList.add("hidden");
+});
+
+// confirmar -> limpa tabela + localStorage
+confirmClearBtn.addEventListener("click", () => {
   registros = [];
   salvarNoLocalStorage();
   renderizarTodos();
   atualizarProgressoLote(0, 0);
+  confirmClearOverlay.classList.add("hidden");
+});
+
+// (opcional) fechar com ESC
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    confirmClearOverlay.classList.add("hidden");
+  }
 });
 
 // ---------- EXPORTAR PARA EXCEL ----------
