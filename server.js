@@ -69,15 +69,17 @@ function criarLinhaDOM(registro) {
   const sitUpper = (registro.situacao || "").toUpperCase();
 
   tr.innerHTML = `
-    <td>${registro.cnpj || ""}</td>
-    <td>${registro.contribuinte || ""}</td>
-    <td>
-      <span class="tag ${
-        /INDEFERIDA|CANCELADA|SUSPENSA|ERRO/.test(sitUpper) ? "negado" : ""
-      }">
-        ${registro.situacao || ""}
-      </span>
-    </td>
+  <td>${registro.cnpj || ""}</td>
+  <td>${registro.contribuinte || ""}</td>
+  <td>
+    <span class="tag ${
+      /INDEFERIDA|CANCELADA|SUSPENSA|ERRO|N[ÃA]O HABILITADA/.test(sitUpper)
+        ? "negado"
+        : ""
+    }">
+      ${registro.situacao || ""}
+    </span>
+  </td>
     <td>${registro.dataSituacao || ""}</td>
     <td>${registro.submodalidade || ""}</td>
     <td>${registro.razaoSocial || ""}</td>
@@ -348,14 +350,37 @@ async function processarLoteCnpjs(cnpjs) {
         capitalSocial = receita.capitalSocial || "";
       }
 
+      // ------- MONTAR CAMPOS DE HABILITAÇÃO (RADAR) -------
+      let contribuinte = "";
+      let situacao = "";
+      let dataSituacao = "";
+      let submodalidade = "";
+
+      if (radar) {
+        contribuinte = radar.contribuinte || "";
+        situacao = radar.situacao || "";
+        dataSituacao = radar.dataSituacao || "";
+        submodalidade = radar.submodalidade || "";
+      }
+
+      // ------- CASO ESPECIAL: NÃO HABILITADA A OPERAR -------
+      // Se o RADAR respondeu (radar != null), mas não trouxe NENHUM campo preenchido,
+      // e a ReceitaWS trouxe os dados cadastrais, consideramos "não habilitada a operar".
+      const nenhumCampoRadarPreenchido =
+        !contribuinte && !situacao && !dataSituacao && !submodalidade;
+
+      if (radar && nenhumCampoRadarPreenchido && receita) {
+        situacao = "NÃO HABILITADA A OPERAR";
+      }
+
       // ------- SE ALGUMA COISA DEU CERTO, NÃO É ERRO -------
       if (radar || receita) {
         adicionarLinhaTabela(
           cnpj,
-          radar ? radar.contribuinte || "" : "",
-          radar ? radar.situacao || "" : "",
-          radar ? radar.dataSituacao || "" : "",
-          radar ? radar.submodalidade || "" : "",
+          contribuinte,
+          situacao,
+          dataSituacao,
+          submodalidade,
           razaoSocial,
           nomeFantasiaFront,
           municipio,
@@ -419,11 +444,33 @@ function extrairDadosDoTexto(texto) {
   const dataMatch = t.match(/Data da Situa[cç][aã]o:\s*([^\n\r]+)/);
   const subMatch = t.match(/Submodalidade:\s*([^\n\r]+)/);
 
+  let contribuinte = contribMatch ? contribMatch[1].trim() : "";
+  let situacao = sitMatch ? sitMatch[1].trim() : "";
+  let dataSituacao = dataMatch ? dataMatch[1].trim() : "";
+  let submodalidade = subMatch ? subMatch[1].trim() : "";
+
+  let ehNaoHabilitada = false;
+
+  // --- NOVO LAYOUT: "não habilitada a operar no Comércio Exterior" ---
+  if (!situacao) {
+    const naoHabMatch = t.match(
+      /n[ãa]o habilitad[ao] a operar no Com[eé]rcio Exterior/i
+    );
+    if (naoHabMatch) {
+      situacao = "NÃO HABILITADA A OPERAR";
+      // nesses casos a página realmente não mostra Data da Situação nem Submodalidade
+      dataSituacao = "";
+      submodalidade = "";
+      ehNaoHabilitada = true;
+    }
+  }
+
   return {
-    contribuinte: contribMatch ? contribMatch[1].trim() : "",
-    situacao: sitMatch ? sitMatch[1].trim() : "",
-    dataSituacao: dataMatch ? dataMatch[1].trim() : "",
-    submodalidade: subMatch ? subMatch[1].trim() : "",
+    contribuinte,
+    situacao,
+    dataSituacao,
+    submodalidade,
+    ehNaoHabilitada,
   };
 }
 
@@ -440,10 +487,19 @@ extractAddBtn.addEventListener("click", async () => {
     return;
   }
 
-  const { contribuinte, situacao, dataSituacao, submodalidade } =
-    extrairDadosDoTexto(texto);
+  const {
+    contribuinte,
+    situacao,
+    dataSituacao,
+    submodalidade,
+    ehNaoHabilitada,
+  } = extrairDadosDoTexto(texto);
 
-  if (!contribuinte || !situacao || !dataSituacao || !submodalidade) {
+  // Caso normal: exige todos os campos
+  if (
+    !ehNaoHabilitada &&
+    (!contribuinte || !situacao || !dataSituacao || !submodalidade)
+  ) {
     alert(
       "Não foi possível encontrar todos os campos no texto colado. Confira se copiou a página inteira."
     );
@@ -640,7 +696,7 @@ async function reconsultarErros() {
 
       if (radar) {
         reg.contribuinte = radar.contribuinte || "";
-        reg.situacao = radar.situicao || radar.situacao || reg.situacao || "";
+        reg.situacao = radar.situacao || reg.situacao || "";
         reg.dataSituacao = radar.dataSituacao || "";
         reg.submodalidade = radar.submodalidade || "";
       }
