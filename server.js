@@ -68,18 +68,25 @@ function criarLinhaDOM(registro) {
   const tr = document.createElement("tr");
   const sitUpper = (registro.situacao || "").toUpperCase();
 
+  // decide qual classe aplicar no badge
+  let classeSituacao = "neutro";
+
+  if (/DEFERIDA/.test(sitUpper)) {
+    classeSituacao = "aprovado";
+  } else if (
+    /INDEFERIDA|CANCELADA|SUSPENSA|ERRO|N[ÃA]O HABILITADA/.test(sitUpper)
+  ) {
+    classeSituacao = "negado";
+  }
+
   tr.innerHTML = `
-  <td>${registro.cnpj || ""}</td>
-  <td>${registro.contribuinte || ""}</td>
-  <td>
-    <span class="tag ${
-      /INDEFERIDA|CANCELADA|SUSPENSA|ERRO|N[ÃA]O HABILITADA/.test(sitUpper)
-        ? "negado"
-        : ""
-    }">
-      ${registro.situacao || ""}
-    </span>
-  </td>
+    <td>${registro.cnpj || ""}</td>
+    <td>${registro.contribuinte || ""}</td>
+    <td>
+      <span class="tag ${classeSituacao}">
+        ${registro.situacao || ""}
+      </span>
+    </td>
     <td>${registro.dataSituacao || ""}</td>
     <td>${registro.submodalidade || ""}</td>
     <td>${registro.razaoSocial || ""}</td>
@@ -200,15 +207,12 @@ fileInput.addEventListener("change", (event) => {
         return;
       }
 
-      if (
-        !confirm(
-          `Foram encontrados ${cnpjs.length} CNPJs. Deseja iniciar a consulta em lote (via API)?`
-        )
-      ) {
-        return;
-      }
+      // guarda os CNPJs para uso quando clicar em "Sim, iniciar"
+      window.cnpjsParaImportar = cnpjs;
 
-      await processarLoteCnpjs(cnpjs);
+      // atualiza o texto do modal e abre
+      confirmImportText.textContent = `Foram encontrados ${cnpjs.length} CNPJs. Deseja iniciar a consulta em lote (via API)?`;
+      confirmImportOverlay.classList.remove("hidden");
     } catch (err) {
       console.error(err);
       showInfoModal(
@@ -603,17 +607,6 @@ async function reconsultarErros() {
     return;
   }
 
-  if (
-    !confirm(
-      `Serão reconsultados ${total} registros:\n` +
-        `- ${faltandoTudo.length} sem habilitação e sem cadastro (RADAR + Receita)\n` +
-        `- ${faltandoRadar.length} com cadastro mas sem habilitação (somente RADAR)\n` +
-        `- ${faltandoReceita.length} com habilitação mas sem cadastro (somente Receita)`
-    )
-  ) {
-    return;
-  }
-
   let processados = 0;
   atualizarProgressoLote(0, total);
 
@@ -771,27 +764,37 @@ const confirmRetryOverlay = document.getElementById("confirmRetryOverlay");
 const confirmRetryBtn = document.getElementById("confirmRetry");
 const cancelRetryBtn = document.getElementById("cancelRetry");
 
-// abrir modal ao clicar no botão
+// ---------- MODAL DE CONFIRMAR IMPORTAÇÃO ----------
+const confirmImportOverlay = document.getElementById("confirmImportOverlay");
+const confirmImportBtn = document.getElementById("confirmImport");
+const cancelImportBtn = document.getElementById("cancelImport");
+const confirmImportText = document.getElementById("confirmImportText");
+
+// abrir modal de reconsulta ao clicar no botão
 retryErrorsBtn.addEventListener("click", () => {
   confirmRetryOverlay.classList.remove("hidden");
 });
 
-// cancelar
+// cancelar reconsulta
 cancelRetryBtn.addEventListener("click", () => {
   confirmRetryOverlay.classList.add("hidden");
 });
 
-// confirmar -> chama a função real
+// confirmar reconsulta -> chama a função real
 confirmRetryBtn.addEventListener("click", () => {
   confirmRetryOverlay.classList.add("hidden");
-  reconsultarErros(); // chamada real
+  reconsultarErros();
 });
 
-// fechar com ESC
-window.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    confirmRetryOverlay.classList.add("hidden");
-  }
+// cancelar importação
+cancelImportBtn.addEventListener("click", () => {
+  confirmImportOverlay.classList.add("hidden");
+});
+
+// confirmar importação (já existia, mantido)
+confirmImportBtn.addEventListener("click", async () => {
+  confirmImportOverlay.classList.add("hidden");
+  await processarLoteCnpjs(window.cnpjsParaImportar);
 });
 
 // ---------- MODAL GENÉRICO (substitui alert) ----------
@@ -841,6 +844,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     confirmClearOverlay.classList.add("hidden");
     confirmRetryOverlay.classList.add("hidden");
+    confirmImportOverlay.classList.add("hidden");
     infoModal.classList.add("hidden");
   }
 });
