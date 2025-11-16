@@ -193,7 +193,8 @@ fileInput.addEventListener("change", (event) => {
         .filter((c) => c.length > 0);
 
       if (!cnpjs.length) {
-        alert(
+        showInfoModal(
+          "Planilha sem CNPJs",
           "Não foi possível encontrar CNPJs na primeira coluna da planilha."
         );
         return;
@@ -210,7 +211,8 @@ fileInput.addEventListener("change", (event) => {
       await processarLoteCnpjs(cnpjs);
     } catch (err) {
       console.error(err);
-      alert(
+      showInfoModal(
+        "Erro ao ler planilha",
         "Ocorreu um erro ao ler a planilha. Verifique o arquivo e tente novamente."
       );
     } finally {
@@ -479,11 +481,14 @@ extractAddBtn.addEventListener("click", async () => {
   const texto = rawText.value.trim();
 
   if (!cnpj) {
-    alert("Informe o CNPJ.");
+    showInfoModal("Campo obrigatório", "Informe o CNPJ para continuar.");
     return;
   }
   if (!texto) {
-    alert("Cole o texto da página de resultado da Receita antes de extrair.");
+    showInfoModal(
+      "Texto não encontrado",
+      "Cole o texto da página de resultado da Receita antes de extrair."
+    );
     return;
   }
 
@@ -500,7 +505,8 @@ extractAddBtn.addEventListener("click", async () => {
     !ehNaoHabilitada &&
     (!contribuinte || !situacao || !dataSituacao || !submodalidade)
   ) {
-    alert(
+    showInfoModal(
+      "Campos incompletos",
       "Não foi possível encontrar todos os campos no texto colado. Confira se copiou a página inteira."
     );
     return;
@@ -517,8 +523,9 @@ extractAddBtn.addEventListener("click", async () => {
   let capitalSocial = "";
 
   if (!extras) {
-    alert(
-      "Não foi possível obter os dados cadastrais pela ReceitaWS mesmo após várias tentativas.\n" +
+    showInfoModal(
+      "Dados cadastrais indisponíveis",
+      "Não foi possível obter os dados cadastrais pela ReceitaWS mesmo após várias tentativas. " +
         "Os dados de habilitação do RADAR foram adicionados, mas os campos cadastrais ficarão vazios."
     );
   } else {
@@ -589,7 +596,8 @@ async function reconsultarErros() {
     faltandoTudo.length + faltandoRadar.length + faltandoReceita.length;
 
   if (!total) {
-    alert(
+    showInfoModal(
+      "Nada para reconsultar",
       "Não há registros com falha de habilitação ou de dados cadastrais para reconsultar."
     );
     return;
@@ -786,6 +794,22 @@ window.addEventListener("keydown", (e) => {
   }
 });
 
+// ---------- MODAL GENÉRICO (substitui alert) ----------
+const infoModal = document.getElementById("infoModal");
+const infoModalTitle = document.getElementById("infoModalTitle");
+const infoModalMessage = document.getElementById("infoModalMessage");
+const infoModalClose = document.getElementById("infoModalClose");
+
+function showInfoModal(title, message) {
+  infoModalTitle.textContent = title;
+  infoModalMessage.textContent = message;
+  infoModal.classList.remove("hidden");
+}
+
+infoModalClose.addEventListener("click", () => {
+  infoModal.classList.add("hidden");
+});
+
 // ---------- LIMPAR TABELA (COM MODAL BONITO) ----------
 const confirmClearOverlay = document.getElementById("confirmClearOverlay");
 const confirmClearBtn = document.getElementById("confirmClear");
@@ -816,6 +840,8 @@ confirmClearBtn.addEventListener("click", () => {
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     confirmClearOverlay.classList.add("hidden");
+    confirmRetryOverlay.classList.add("hidden");
+    infoModal.classList.add("hidden");
   }
 });
 
@@ -826,7 +852,10 @@ exportExcelBtn.addEventListener("click", () => {
   );
 
   if (!rows.length) {
-    alert("Não há dados para exportar.");
+    showInfoModal(
+      "Nada para exportar",
+      "Não há dados na tabela para exportar para o Excel."
+    );
     return;
   }
 
@@ -869,6 +898,10 @@ exportExcelBtn.addEventListener("click", () => {
   XLSX.utils.book_append_sheet(wb, ws, "Habilitações");
 
   XLSX.writeFile(wb, "habilitacoes_comercio_exterior.xlsx");
+  showInfoModal(
+    "Exportação concluída",
+    "Arquivo Excel gerado com sucesso: habilitacoes_comercio_exterior.xlsx"
+  );
 });
 
 // ---------- CARREGAR DADOS AO ABRIR A PÁGINA ----------
