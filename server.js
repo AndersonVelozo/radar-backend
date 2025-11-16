@@ -758,25 +758,53 @@ async function reconsultarErros() {
   renderizarTodos();
 }
 
-retryErrorsBtn.addEventListener("click", reconsultarErros);
+// ---------- MODAL BONITO PARA RECONSULTAR ERROS ----------
+const confirmRetryOverlay = document.getElementById("confirmRetryOverlay");
+const confirmRetryBtn = document.getElementById("confirmRetry");
+const cancelRetryBtn = document.getElementById("cancelRetry");
+
+// abrir modal ao clicar no botão
+retryErrorsBtn.addEventListener("click", () => {
+  confirmRetryOverlay.classList.remove("hidden");
+});
+
+// cancelar
+cancelRetryBtn.addEventListener("click", () => {
+  confirmRetryOverlay.classList.add("hidden");
+});
+
+// confirmar -> chama a função real
+confirmRetryBtn.addEventListener("click", () => {
+  confirmRetryOverlay.classList.add("hidden");
+  reconsultarErros(); // chamada real
+});
+
+// fechar com ESC
+window.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    confirmRetryOverlay.classList.add("hidden");
+  }
+});
 
 // ---------- LIMPAR TABELA (COM MODAL BONITO) ----------
 const confirmClearOverlay = document.getElementById("confirmClearOverlay");
 const confirmClearBtn = document.getElementById("confirmClear");
 const cancelClearBtn = document.getElementById("cancelClear");
 
+// só abre o modal, NÃO limpa nada aqui
 clearTableBtn.addEventListener("click", () => {
-  // abre o modal
+  console.log("Cliquei em limpar -> abrindo modal");
   confirmClearOverlay.classList.remove("hidden");
 });
 
-// cancelar -> apenas fecha o modal
+// cancelar -> fecha o modal
 cancelClearBtn.addEventListener("click", () => {
   confirmClearOverlay.classList.add("hidden");
 });
 
 // confirmar -> limpa tabela + localStorage
 confirmClearBtn.addEventListener("click", () => {
+  console.log("Confirmado: limpando tabela e localStorage");
   registros = [];
   salvarNoLocalStorage();
   renderizarTodos();
