@@ -73,6 +73,8 @@ function criarLinhaDOM(registro) {
 
   if (/DEFERIDA/.test(sitUpper)) {
     classeSituacao = "aprovado";
+  } else if (/DADOS INDISPONIVEIS/.test(sitUpper)) {
+    classeSituacao = "indisponivel";
   } else if (
     /INDEFERIDA|CANCELADA|SUSPENSA|ERRO|N[ÃA]O HABILITADA/.test(sitUpper)
   ) {
@@ -121,7 +123,7 @@ function adicionarLinhaTabela(
     cnpj: cnpj || "",
     contribuinte: contribuinte || "",
     situacao: situacao || "",
-    dataSituacao: dataSituacao || "",
+    dataSituacao: dataSituucao || "",
     submodalidade: submodalidade || "",
     razaoSocial: razaoSocial || "",
     nomeFantasia: nomeFantasia || "",
@@ -246,7 +248,6 @@ async function consultarRadarPorCnpj(cnpj) {
 }
 
 // --------- ReceitaWS – backend já devolve campos prontos (com retry) ---------
-// --------- ReceitaWS – backend já devolve campos prontos (com retry) ---------
 async function consultarReceitaWsComRetry(cnpj, maxTentativas = 10) {
   let ultimoErro = null;
 
@@ -366,14 +367,14 @@ async function processarLoteCnpjs(cnpjs) {
         submodalidade = radar.submodalidade || "";
       }
 
-      // ------- CASO ESPECIAL: NÃO HABILITADA A OPERAR -------
-      // Se o RADAR respondeu (radar != null), mas não trouxe NENHUM campo preenchido,
-      // e a ReceitaWS trouxe os dados cadastrais, consideramos "não habilitada a operar".
+      // ------- CASO ESPECIAL: RADAR RESPONDEU MAS VEIO VAZIO -------
       const nenhumCampoRadarPreenchido =
         !contribuinte && !situacao && !dataSituacao && !submodalidade;
 
-      if (radar && nenhumCampoRadarPreenchido && receita) {
-        situacao = "NÃO HABILITADA A OPERAR";
+      if (radar && nenhumCampoRadarPreenchido) {
+        // Marca explicitamente como DADOS INDISPONIVEIS,
+        // mas não força "ERRO" nem "NÃO HABILITADA"
+        situacao = "DADOS INDISPONIVEIS";
       }
 
       // ------- SE ALGUMA COISA DEU CERTO, NÃO É ERRO -------
