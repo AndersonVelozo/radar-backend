@@ -196,7 +196,16 @@ fileInput.addEventListener("change", (event) => {
 
       const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-      const cnpjs = rows
+      // ---- MENSAGEM 1: FILTRANDO ----
+      showInfoModal(
+        "Filtrando CNPJs...",
+        "Estamos analisando os CNPJs da planilha."
+      );
+
+      await new Promise((r) => setTimeout(r, 800));
+
+      // Extrair somente a primeira coluna
+      let cnpjs = rows
         .slice(1)
         .map((row) => normalizarCNPJ(String(row[0] || "")))
         .filter((c) => c.length > 0);
@@ -209,12 +218,28 @@ fileInput.addEventListener("change", (event) => {
         return;
       }
 
-      // guarda os CNPJs para uso quando clicar em "Sim, iniciar"
-      window.cnpjsParaImportar = cnpjs;
+      // ---- MENSAGEM 2: REMOVENDO DUPLICADOS ----
+      showInfoModal(
+        "Removendo CNPJs repetidos...",
+        "CNPJs duplicados serão eliminados automaticamente."
+      );
 
-      // atualiza o texto do modal e abre
-      confirmImportText.textContent = `Foram encontrados ${cnpjs.length} CNPJs. Deseja iniciar a consulta em lote (via API)?`;
-      confirmImportOverlay.classList.remove("hidden");
+      await new Promise((r) => setTimeout(r, 800));
+
+      // Remover duplicados
+      const unicos = [...new Set(cnpjs)];
+
+      // Guardar CNPJs finais para o processamento posterior
+      window.cnpjsParaImportar = unicos;
+
+      // ---- MOSTRAR MODAL DE CONFIRMAÇÃO ----
+      confirmImportText.textContent = `Foram encontrados ${unicos.length} CNPJs únicos. Deseja iniciar a consulta em lote (via API)?`;
+
+      // Fecha modal informativo e abre o principal
+      setTimeout(() => {
+        infoModal.classList.add("hidden");
+        confirmImportOverlay.classList.remove("hidden");
+      }, 600);
     } catch (err) {
       console.error(err);
       showInfoModal(
