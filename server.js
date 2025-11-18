@@ -215,7 +215,6 @@ fileInput.addEventListener("change", (event) => {
         return;
       }
 
-      // Mensagem de leitura
       loteStatusEl.textContent = `Lendo planilha: ${totalLidos} CNPJs encontrados. Filtrando duplicados...`;
 
       // 2) Remove duplicados mantendo a primeira ocorrência
@@ -232,7 +231,6 @@ fileInput.addEventListener("change", (event) => {
         }
       }
 
-      // Mensagens de filtragem
       if (removidos > 0) {
         loteStatusEl.textContent = `Filtrando CNPJs: ${totalLidos} encontrados, removendo ${removidos} CNPJ(s) repetido(s)...`;
       } else {
@@ -407,7 +405,9 @@ async function processarLoteCnpjs(cnpjs) {
 
       // CASO ESPECIAL: RADAR respondeu mas não trouxe nada utilizável
       if (radar && nenhumCampoRadarPreenchido) {
-        contribuinte = "DADOS INDISPONÍVEIS (RADAR)";
+        // não temos contribuinte nem data/submodalidade válidos
+        // então só marcamos a situação como indisponível
+        contribuinte = "";
         situacao = "DADOS INDISPONÍVEIS (RADAR)";
         dataSituacao = "";
         submodalidade = "";
@@ -499,7 +499,8 @@ function extrairDadosDoTexto(texto) {
       /n[ãa]o habilitad[ao] a operar no Com[eé]rcio Exterior/i
     );
     if (naoHabMatch) {
-      situacao = "NÃO HABILITADA A OPERAR";
+      // aqui entra exatamente o caso do print que você mandou
+      situacao = "NÃO HABILITADA";
       // nesses casos a página realmente não mostra Data da Situação nem Submodalidade
       dataSituacao = "";
       submodalidade = "";
@@ -585,7 +586,7 @@ extractAddBtn.addEventListener("click", async () => {
     cnpj,
     contribuinte,
     situacao,
-    dataSituacao,
+    dataSituucao,
     submodalidade,
     razaoSocial,
     nomeFantasiaFront,
@@ -614,7 +615,11 @@ async function reconsultarErros() {
 
   const isErroFlag = (r) => {
     const sit = (r.situacao || "").toUpperCase();
-    return sit === "ERRO" || r.contribuinte === "(erro na consulta)";
+    return (
+      sit === "ERRO" ||
+      r.contribuinte === "(erro na consulta)" ||
+      /DADOS INDISPON[ÍI]VEIS/.test(sit)
+    );
   };
 
   // 1) Sem habilitação E sem cadastro -> erro "hard" -> reconsulta RADAR + Receita
