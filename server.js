@@ -4,8 +4,8 @@ const isLocalHost =
   window.location.hostname === "127.0.0.1";
 
 const BACKEND_BASE_URL = isLocalHost
-  ? "http://localhost:3000" // quando estiver testando local
-  : "https://radar-backend-omjv.onrender.com"; // URL do Render em produção
+  ? "http://localhost:3000"
+  : "https://radar-backend-omjv.onrender.com";
 
 // ---------- ELEMENTOS BÁSICOS ----------
 const cnpjInput = document.getElementById("cnpj");
@@ -20,42 +20,18 @@ const extractAddBtn = document.getElementById("extractAdd");
 const clearTableBtn = document.getElementById("clearTable");
 const exportExcelBtn = document.getElementById("exportExcel");
 const retryErrorsBtn = document.getElementById("retryErrors");
+const retrySelectedBtn = document.getElementById("retrySelected");
+const historyBtn = document.getElementById("historyBtn");
 
 const loteStatusEl = document.getElementById("loteStatus");
 const loteProgressBar = document.getElementById("loteProgressBar");
 
-// ---------- LOCALSTORAGE ----------
-const STORAGE_KEY = "radar_registros_habilitacao";
-
-// agora o registro guarda também os campos cadastrais
-// e Município + UF separados
-// { cnpj, contribuinte, situacao, dataSituacao, submodalidade,
-//   razaoSocial, nomeFantasia, municipio, uf,
-//   dataConstituicao, regimeTributario, capitalSocial }
+// registros da sessão atual (tela)
 let registros = [];
 
-function salvarNoLocalStorage() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(registros));
-  } catch (e) {
-    console.error("Erro ao salvar no localStorage:", e);
-  }
-}
-
-function carregarDoLocalStorage() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
-  } catch (e) {
-    console.error("Erro ao carregar do localStorage:", e);
-    return [];
-  }
-}
-
+// ---------- HELPERS ----------
 function normalizarCNPJ(v) {
-  return v.replace(/\D/g, "");
+  return (v || "").replace(/\D/g, "");
 }
 
 function removerLinhaVazia() {
@@ -63,18 +39,27 @@ function removerLinhaVazia() {
   if (noDataRow) tableBody.removeChild(noDataRow);
 }
 
+function formatarDataBR(dataISO) {
+  if (!dataISO) return "";
+  // aceita Date, string yyyy-mm-dd, etc
+  const d = new Date(dataISO);
+  if (Number.isNaN(d.getTime())) return String(dataISO);
+  const dia = String(d.getDate()).padStart(2, "0");
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const ano = d.getFullYear();
+  return `${dia}/${mes}/${ano}`;
+}
+
 // ---------- RENDERIZAÇÃO DA TABELA ----------
 function criarLinhaDOM(registro) {
   const tr = document.createElement("tr");
   const sitUpper = (registro.situacao || "").toUpperCase();
 
-  // decide qual classe aplicar no badge
   let classeSituacao = "neutro";
 
   if (/DEFERIDA/.test(sitUpper)) {
     classeSituacao = "aprovado";
   } else if (/DADOS INDISPON[ÍI]VEIS/.test(sitUpper)) {
-    // pega tanto INDISPONIVEIS quanto INDISPONÍVEIS
     classeSituacao = "indisponivel";
   } else if (
     /INDEFERIDA|CANCELADA|SUSPENSA|ERRO|N[ÃA]O HABILITADA/.test(sitUpper)
@@ -83,6 +68,10 @@ function criarLinhaDOM(registro) {
   }
 
   tr.innerHTML = `
+    <td>
+      <input type="checkbox" class="select-cnpj" />
+    </td>
+    <td>${registro.dataConsultaBR || ""}</td>
     <td>${registro.cnpj || ""}</td>
     <td>${registro.contribuinte || ""}</td>
     <td>
@@ -98,54 +87,42 @@ function criarLinhaDOM(registro) {
     <td>${registro.uf || ""}</td>
     <td>${registro.dataConstituicao || ""}</td>
     <td>${registro.regimeTributario || ""}</td>
+    <td>${registro.dataOpcaoSimples || ""}</td>
     <td>${registro.capitalSocial || ""}</td>
   `;
 
   tableBody.appendChild(tr);
 }
 
-function adicionarLinhaTabela(
-  cnpj,
-  contribuinte,
-  situacao,
-  dataSituacao,
-  submodalidade,
-  razaoSocial,
-  nomeFantasia,
-  municipio,
-  uf,
-  dataConstituicao,
-  regimeTributario,
-  capitalSocial
-) {
+function adicionarLinhaTabela(dados) {
   removerLinhaVazia();
 
   const registro = {
-    cnpj: cnpj || "",
-    contribuinte: contribuinte || "",
-    situacao: situacao || "",
-    dataSituacao: dataSituacao || "",
-    submodalidade: submodalidade || "",
-    razaoSocial: razaoSocial || "",
-    nomeFantasia: nomeFantasia || "",
-    municipio: municipio || "",
-    uf: uf || "",
-    dataConstituicao: dataConstituicao || "",
-    regimeTributario: regimeTributario || "",
-    capitalSocial: capitalSocial || "",
+    dataConsulta: dados.dataConsulta || null,
+    dataConsultaBR: dados.dataConsultaBR || "",
+    cnpj: dados.cnpj || "",
+    contribuinte: dados.contribuinte || "",
+    situacao: dados.situacao || "",
+    dataSituacao: dados.dataSituacao || "",
+    submodalidade: dados.submodalidade || "",
+    razaoSocial: dados.razaoSocial || "",
+    nomeFantasia: dados.nomeFantasia || "",
+    municipio: dados.municipio || "",
+    uf: dados.uf || "",
+    dataConstituicao: dados.dataConstituicao || "",
+    regimeTributario: dados.regimeTributario || "",
+    dataOpcaoSimples: dados.dataOpcaoSimples || "",
+    capitalSocial: dados.capitalSocial || "",
   };
-
-  console.log("Adicionando linha na tabela:", registro);
 
   registros.push(registro);
   criarLinhaDOM(registro);
-  salvarNoLocalStorage();
 }
 
 function renderizarTodos() {
   tableBody.innerHTML = `
     <tr class="no-data-row">
-      <td colspan="12" class="no-data">Nenhum registro adicionado ainda</td>
+      <td colspan="15" class="no-data">Nenhum registro adicionado ainda</td>
     </tr>
   `;
 
@@ -171,6 +148,36 @@ function atualizarProgressoLote(processados, total) {
     loteStatusEl.textContent = `Consultas em lote concluídas: ${total}/${total} (100%)`;
   }
 }
+
+// ---------- MODAL GENÉRICO ----------
+const infoModal = document.getElementById("infoModal");
+const infoModalTitle = document.getElementById("infoModalTitle");
+const infoModalMessage = document.getElementById("infoModalMessage");
+const infoModalClose = document.getElementById("infoModalClose");
+
+function showInfoModal(title, message) {
+  infoModalTitle.textContent = title;
+  infoModalMessage.textContent = message;
+  infoModal.classList.remove("hidden");
+}
+
+infoModalClose.addEventListener("click", () => {
+  infoModal.classList.add("hidden");
+});
+
+// ---------- MODAIS ESPECÍFICOS ----------
+const confirmRetryOverlay = document.getElementById("confirmRetryOverlay");
+const confirmRetryBtn = document.getElementById("confirmRetry");
+const cancelRetryBtn = document.getElementById("cancelRetry");
+
+const confirmImportOverlay = document.getElementById("confirmImportOverlay");
+const confirmImportBtn = document.getElementById("confirmImport");
+const cancelImportBtn = document.getElementById("cancelImport");
+const confirmImportText = document.getElementById("confirmImportText");
+
+const confirmClearOverlay = document.getElementById("confirmClearOverlay");
+const confirmClearBtn = document.getElementById("confirmClear");
+const cancelClearBtn = document.getElementById("cancelClear");
 
 // ---------- BOTÃO: ABRIR RECEITA ----------
 openReceitaBtn.addEventListener("click", () => {
@@ -199,7 +206,6 @@ fileInput.addEventListener("change", (event) => {
 
       const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-      // 1) Lê todos os CNPJs (podendo ter repetidos)
       const cnpjsRaw = rows
         .slice(1)
         .map((row) => normalizarCNPJ(String(row[0] || "")))
@@ -217,7 +223,6 @@ fileInput.addEventListener("change", (event) => {
 
       loteStatusEl.textContent = `Lendo planilha: ${totalLidos} CNPJs encontrados. Filtrando duplicados...`;
 
-      // 2) Remove duplicados mantendo a primeira ocorrência
       const vistos = new Set();
       const cnpjsUnicos = [];
       let removidos = 0;
@@ -241,10 +246,8 @@ fileInput.addEventListener("change", (event) => {
         `CNPJs lidos: ${totalLidos} | Únicos: ${cnpjsUnicos.length} | Removidos: ${removidos}`
       );
 
-      // 3) Guarda apenas os únicos para o processamento
       window.cnpjsParaImportar = cnpjsUnicos;
 
-      // 4) Abre modal de confirmação com a contagem de únicos
       confirmImportText.textContent = `Foram encontrados ${cnpjsUnicos.length} CNPJs únicos. Deseja iniciar a consulta em lote (via API)?`;
       confirmImportOverlay.classList.remove("hidden");
     } catch (err) {
@@ -261,76 +264,51 @@ fileInput.addEventListener("change", (event) => {
   reader.readAsArrayBuffer(file);
 });
 
-// ---------- CONSULTAS VIA BACKEND ----------
+// ----- confirmar/cancelar importação -----
+cancelImportBtn.addEventListener("click", () => {
+  confirmImportOverlay.classList.add("hidden");
+});
 
-// RADAR
-async function consultarRadarPorCnpj(cnpj) {
-  const resp = await fetch(
-    `${BACKEND_BASE_URL}/consulta-radar?cnpj=${encodeURIComponent(cnpj)}`
-  );
+confirmImportBtn.addEventListener("click", async () => {
+  confirmImportOverlay.classList.add("hidden");
+  await processarLoteCnpjs(window.cnpjsParaImportar || []);
+});
 
+// ---------- CONSULTA COMPLETA NO BACKEND ----------
+async function consultarBackendCompleto(cnpj, { force = false } = {}) {
+  const url = new URL(`${BACKEND_BASE_URL}/consulta-completa`);
+  url.searchParams.set("cnpj", cnpj);
+  if (force) url.searchParams.set("force", "1");
+
+  const resp = await fetch(url.toString());
   if (!resp.ok) {
-    throw new Error("Erro ao consultar backend (RADAR)");
+    throw new Error(`Erro ao consultar backend: HTTP ${resp.status}`);
   }
 
   const data = await resp.json();
-  console.log("Resposta RADAR backend para", cnpj, data);
+  console.log("Resposta /consulta-completa para", cnpj, data);
 
-  return data; // { contribuinte, situacao, dataSituacao, submodalidade }
-}
+  const dataConsultaBR = data.dataConsulta
+    ? formatarDataBR(data.dataConsulta)
+    : formatarDataBR(new Date());
 
-// --------- ReceitaWS – backend já devolve campos prontos (com retry) ---------
-async function consultarReceitaWsComRetry(cnpj, maxTentativas = 10) {
-  let ultimoErro = null;
-
-  for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
-    try {
-      const resp = await fetch(
-        `${BACKEND_BASE_URL}/consulta-receitaws?cnpj=${encodeURIComponent(
-          cnpj
-        )}`
-      );
-
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status}`);
-      }
-
-      const dados = await resp.json();
-      console.log(
-        `ReceitaWS OK (tentativa ${tentativa}/${maxTentativas}) para`,
-        cnpj,
-        dados
-      );
-
-      if (!dados || !dados.razaoSocial) {
-        throw new Error("Resposta da ReceitaWS incompleta");
-      }
-
-      return dados;
-    } catch (e) {
-      ultimoErro = e;
-      console.warn(
-        `Falha ReceitaWS (tentativa ${tentativa}/${maxTentativas}) para ${cnpj}:`,
-        e
-      );
-
-      if (tentativa < maxTentativas) {
-        const delayMs = 1500 * tentativa;
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
-      }
-    }
-  }
-
-  console.error(
-    `Todas as tentativas da ReceitaWS falharam para ${cnpj}:`,
-    ultimoErro
-  );
-  return null;
-}
-
-// Versão simples que reaproveita o retry (usada em reconsultarErros e outros pontos)
-async function consultarReceitaWs(cnpj) {
-  return consultarReceitaWsComRetry(cnpj);
+  return {
+    dataConsulta: data.dataConsulta || null,
+    dataConsultaBR,
+    cnpj,
+    contribuinte: data.contribuinte || "",
+    situacao: data.situacao || "",
+    dataSituacao: data.dataSituacao || "",
+    submodalidade: data.submodalidade || "",
+    razaoSocial: data.razaoSocial || "",
+    nomeFantasia: data.nomeFantasia || "",
+    municipio: data.municipio || "",
+    uf: data.uf || "",
+    dataConstituicao: data.dataConstituicao || "",
+    regimeTributario: data.regimeTributario || "",
+    dataOpcaoSimples: data.dataOpcaoSimples || "",
+    capitalSocial: data.capitalSocial || "",
+  };
 }
 
 // ---------- PROCESSAR LOTE ----------
@@ -338,144 +316,48 @@ async function processarLoteCnpjs(cnpjs) {
   const total = cnpjs.length;
   let processados = 0;
 
+  if (!total) {
+    showInfoModal(
+      "Nada para consultar",
+      "Nenhum CNPJ foi encontrado para consulta em lote."
+    );
+    return;
+  }
+
   atualizarProgressoLote(0, total);
 
   for (const cnpj of cnpjs) {
-    let radar = null;
-    let receita = null;
-
     try {
-      // --- RADAR ---
-      try {
-        radar = await consultarRadarPorCnpj(cnpj);
-        console.log("RADAR lote OK para", cnpj, radar);
-      } catch (e) {
-        console.error("Falha RADAR no lote para", cnpj, e);
-      }
-
-      // --- ReceitaWS (com retry) ---
-      receita = await consultarReceitaWsComRetry(cnpj);
-      if (receita) {
-        console.log("ReceitaWS lote OK para", cnpj, receita);
-      } else {
-        console.warn(
-          "ReceitaWS falhou mesmo após múltiplas tentativas para",
-          cnpj
-        );
-      }
-
-      // ------- MONTAR CAMPOS DE CADASTRO (Receita) -------
-      let razaoSocial = "";
-      let nomeFantasiaFront = "";
-      let municipio = "";
-      let uf = "";
-      let dataConstituicao = "";
-      let regimeTributario = "";
-      let capitalSocial = "";
-
-      if (receita) {
-        razaoSocial = receita.razaoSocial || "";
-        nomeFantasiaFront =
-          receita.nomeFantasia && receita.nomeFantasia.trim().length > 0
-            ? receita.nomeFantasia.trim()
-            : "Sem nome fantasia";
-        municipio = receita.municipio || "";
-        uf = receita.uf || "";
-        dataConstituicao = receita.dataConstituicao || "";
-        regimeTributario = receita.regimeTributario || "";
-        capitalSocial = receita.capitalSocial || "";
-      }
-
-      // ------- MONTAR CAMPOS DE HABILITAÇÃO (RADAR) -------
-      let contribuinte = "";
-      let situacao = "";
-      let dataSituacao = "";
-      let submodalidade = "";
-
-      if (radar) {
-        contribuinte = radar.contribuinte || "";
-        situacao = radar.situacao || "";
-        dataSituacao = radar.dataSituacao || "";
-        submodalidade = radar.submodalidade || "";
-      }
-
-      // Detecta se o RADAR veio "vazio"
-      const nenhumCampoRadarPreenchido =
-        !contribuinte && !situacao && !dataSituacao && !submodalidade;
-
-      // CASO ESPECIAL: RADAR respondeu mas não trouxe nada utilizável
-      if (radar && nenhumCampoRadarPreenchido) {
-        // não temos contribuinte nem data/submodalidade válidos
-        // então só marcamos a situação como indisponível
-        contribuinte = "";
-        situacao = "DADOS INDISPONÍVEIS (RADAR)";
-        dataSituacao = "";
-        submodalidade = "";
-      }
-
-      // Houve pelo menos UMA resposta de alguma API?
-      const teveAlgumaResposta = !!(radar || receita);
-
-      if (teveAlgumaResposta) {
-        adicionarLinhaTabela(
-          cnpj,
-          contribuinte,
-          situacao,
-          dataSituacao,
-          submodalidade,
-          razaoSocial,
-          nomeFantasiaFront,
-          municipio,
-          uf,
-          dataConstituicao,
-          regimeTributario,
-          capitalSocial
-        );
-      } else {
-        // Nenhuma API respondeu -> aqui sim marcado como ERRO
-        adicionarLinhaTabela(
-          cnpj,
-          "(erro na consulta)",
-          "ERRO",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          "",
-          ""
-        );
-      }
+      const dados = await consultarBackendCompleto(cnpj);
+      adicionarLinhaTabela(dados);
     } catch (err) {
       console.error("Erro inesperado no lote para", cnpj, err);
-      // fallback: marca como erro
-      adicionarLinhaTabela(
+      adicionarLinhaTabela({
+        dataConsulta: new Date(),
+        dataConsultaBR: formatarDataBR(new Date()),
         cnpj,
-        "(erro na consulta)",
-        "ERRO",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        "",
-        ""
-      );
+        contribuinte: "(erro na consulta)",
+        situacao: "ERRO",
+        dataSituacao: "",
+        submodalidade: "",
+        razaoSocial: "",
+        nomeFantasia: "",
+        municipio: "",
+        uf: "",
+        dataConstituicao: "",
+        regimeTributario: "",
+        dataOpcaoSimples: "",
+        capitalSocial: "",
+      });
     } finally {
       processados++;
       atualizarProgressoLote(processados, total);
-
-      // Pequeno delay para não estourar limite da API (ajuste se quiser)
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 800));
     }
   }
 }
 
-// ---------- CONSULTA UNITÁRIA (COLANDO O TEXTO RADAR) ----------
+// ---------- EXTRATOR TEXTO (consulta unitária manual) ----------
 function extrairDadosDoTexto(texto) {
   const t = texto.replace(/\r/g, "");
 
@@ -493,15 +375,12 @@ function extrairDadosDoTexto(texto) {
 
   let ehNaoHabilitada = false;
 
-  // --- NOVO LAYOUT: "não habilitada a operar no Comércio Exterior" ---
   if (!situacao) {
     const naoHabMatch = t.match(
       /n[ãa]o habilitad[ao] a operar no Com[eé]rcio Exterior/i
     );
     if (naoHabMatch) {
-      // aqui entra exatamente o caso do print que você mandou
       situacao = "NÃO HABILITADA";
-      // nesses casos a página realmente não mostra Data da Situação nem Submodalidade
       dataSituacao = "";
       submodalidade = "";
       ehNaoHabilitada = true;
@@ -541,7 +420,6 @@ extractAddBtn.addEventListener("click", async () => {
     ehNaoHabilitada,
   } = extrairDadosDoTexto(texto);
 
-  // Caso normal: exige todos os campos
   if (
     !ehNaoHabilitada &&
     (!contribuinte || !situacao || !dataSituacao || !submodalidade)
@@ -553,56 +431,51 @@ extractAddBtn.addEventListener("click", async () => {
     return;
   }
 
-  const extras = await consultarReceitaWsComRetry(cnpj);
+  try {
+    const extras = await consultarBackendCompleto(cnpj);
 
-  let razaoSocial = "";
-  let nomeFantasiaFront = "";
-  let municipio = "";
-  let uf = "";
-  let dataConstituicao = "";
-  let regimeTributario = "";
-  let capitalSocial = "";
+    // sobrescreve com o que veio do texto RADAR (habilitação),
+    // mantendo cadastro vindo do backend
+    const dados = {
+      ...extras,
+      contribuinte,
+      situacao,
+      dataSituacao,
+      submodalidade,
+    };
 
-  if (!extras) {
+    adicionarLinhaTabela(dados);
+    rawText.value = "";
+  } catch (err) {
+    console.error("Erro na consulta unitária:", err);
+
+    adicionarLinhaTabela({
+      dataConsulta: new Date(),
+      dataConsultaBR: formatarDataBR(new Date()),
+      cnpj,
+      contribuinte,
+      situacao: situacao || "ERRO",
+      dataSituacao,
+      submodalidade,
+      razaoSocial: "",
+      nomeFantasia: "",
+      municipio: "",
+      uf: "",
+      dataConstituicao: "",
+      regimeTributario: "",
+      dataOpcaoSimples: "",
+      capitalSocial: "",
+    });
+
     showInfoModal(
-      "Dados cadastrais indisponíveis",
-      "Não foi possível obter os dados cadastrais pela ReceitaWS mesmo após várias tentativas. " +
-        "Os dados de habilitação do RADAR foram adicionados, mas os campos cadastrais ficarão vazios."
+      "Erro na consulta",
+      "Não foi possível obter os dados cadastrais pela API. Os dados do texto foram adicionados mesmo assim."
     );
-  } else {
-    razaoSocial = extras.razaoSocial || "";
-    nomeFantasiaFront =
-      extras.nomeFantasia && extras.nomeFantasia.trim().length > 0
-        ? extras.nomeFantasia.trim()
-        : "Sem nome fantasia";
-    municipio = extras.municipio || "";
-    uf = extras.uf || "";
-    dataConstituicao = extras.dataConstituicao || "";
-    regimeTributario = extras.regimeTributario || "";
-    capitalSocial = extras.capitalSocial || "";
   }
-
-  adicionarLinhaTabela(
-    cnpj,
-    contribuinte,
-    situacao,
-    dataSituucao,
-    submodalidade,
-    razaoSocial,
-    nomeFantasiaFront,
-    municipio,
-    uf,
-    dataConstituicao,
-    regimeTributario,
-    capitalSocial
-  );
-
-  rawText.value = "";
 });
 
-// ---------- RECONSULTAR ERROS ----------
+// ---------- RECONSULTAR ERROS (lógica antiga, mas usando /consulta-completa) ----------
 async function reconsultarErros() {
-  // Helpers
   const temHabilitacao = (r) =>
     !!(
       (r.contribuinte && r.contribuinte.trim().length > 0) ||
@@ -622,17 +495,14 @@ async function reconsultarErros() {
     );
   };
 
-  // 1) Sem habilitação E sem cadastro -> erro "hard" -> reconsulta RADAR + Receita
   const faltandoTudo = registros.filter(
     (r) => !temHabilitacao(r) && !temCadastro(r) && isErroFlag(r)
   );
 
-  // 2) Sem habilitação, MAS com cadastro -> só RADAR (Infosimples)
   const faltandoRadar = registros.filter(
     (r) => !temHabilitacao(r) && temCadastro(r)
   );
 
-  // 3) Com habilitação, MAS sem cadastro -> só ReceitaWS
   const faltandoReceita = registros.filter(
     (r) => temHabilitacao(r) && !temCadastro(r)
   );
@@ -651,235 +521,99 @@ async function reconsultarErros() {
   let processados = 0;
   atualizarProgressoLote(0, total);
 
-  // --- 1) Reconsultar RADAR + Receita (faltandoTudo) ---
-  for (const reg of faltandoTudo) {
+  async function atualizarRegistro(reg) {
     try {
-      let radar = null;
-      let receita = null;
-
-      // RADAR
-      try {
-        radar = await consultarRadarPorCnpj(reg.cnpj);
-        console.log("RADAR (reconsulta ambos) OK para", reg.cnpj, radar);
-      } catch (e) {
-        console.error("Falha RADAR (reconsulta ambos) para", reg.cnpj, e);
-      }
-
-      // Receita (com retry)
-      try {
-        receita = await consultarReceitaWsComRetry(reg.cnpj);
-        if (receita) {
-          console.log(
-            "ReceitaWS (reconsulta ambos) OK para",
-            reg.cnpj,
-            receita
-          );
-        } else {
-          console.warn(
-            "ReceitaWS (reconsulta ambos) falhou mesmo com retry para",
-            reg.cnpj
-          );
-        }
-      } catch (e) {
-        console.error("Falha ReceitaWS (reconsulta ambos) para", reg.cnpj, e);
-      }
-
-      // Atualiza habilitação se RADAR respondeu
-      if (radar) {
-        reg.contribuinte = radar.contribuinte || "";
-        reg.situacao = radar.situacao || "";
-        reg.dataSituacao = radar.dataSituacao || "";
-        reg.submodalidade = radar.submodalidade || "";
-      }
-
-      // Atualiza cadastro se Receita respondeu
-      if (receita) {
-        const nomeFantasiaFront =
-          receita.nomeFantasia && receita.nomeFantasia.trim().length > 0
-            ? receita.nomeFantasia.trim()
-            : "Sem nome fantasia";
-
-        reg.razaoSocial = receita.razaoSocial || "";
-        reg.nomeFantasia = nomeFantasiaFront;
-        reg.municipio = receita.municipio || "";
-        reg.uf = receita.uf || "";
-        reg.dataConstituicao = receita.dataConstituicao || "";
-        reg.regimeTributario = receita.regimeTributario || "";
-        reg.capitalSocial = receita.capitalSocial || "";
-      }
-
-      // Se RADAR respondeu, deixa de ser ERRO
-      if (radar && isErroFlag(reg)) {
-        reg.situacao = radar.situacao || "";
-      }
+      const dados = await consultarBackendCompleto(reg.cnpj, { force: true });
+      Object.assign(reg, dados);
     } catch (err) {
-      console.error(
-        "Erro inesperado ao reconsultar (ambos) CNPJ",
-        reg.cnpj,
-        err
-      );
+      console.error("Erro ao reconsultar CNPJ", reg.cnpj, err);
     } finally {
       processados++;
       atualizarProgressoLote(processados, total);
     }
   }
 
-  // --- 2) Reconsultar apenas RADAR (faltandoRadar) ---
-  for (const reg of faltandoRadar) {
-    try {
-      let radar = null;
-
-      try {
-        radar = await consultarRadarPorCnpj(reg.cnpj);
-        console.log("RADAR (reconsulta só RADAR) OK para", reg.cnpj, radar);
-      } catch (e) {
-        console.error("Falha RADAR (reconsulta só RADAR) para", reg.cnpj, e);
-      }
-
-      if (radar) {
-        reg.contribuinte = radar.contribuinte || "";
-        reg.situacao = radar.situacao || reg.situacao || "";
-        reg.dataSituacao = radar.dataSituacao || "";
-        reg.submodalidade = radar.submodalidade || "";
-      }
-    } catch (err) {
-      console.error(
-        "Erro inesperado ao reconsultar só RADAR para CNPJ",
-        reg.cnpj,
-        err
-      );
-    } finally {
-      processados++;
-      atualizarProgressoLote(processados, total);
-    }
+  for (const reg of [...faltandoTudo, ...faltandoRadar, ...faltandoReceita]) {
+    await atualizarRegistro(reg);
   }
 
-  // --- 3) Reconsultar apenas Receita (faltandoReceita) ---
-  for (const reg of faltandoReceita) {
-    try {
-      const receita = await consultarReceitaWsComRetry(reg.cnpj);
-
-      if (receita) {
-        console.log(
-          "ReceitaWS (reconsulta só cadastro) OK para",
-          reg.cnpj,
-          receita
-        );
-
-        const nomeFantasiaFront =
-          receita.nomeFantasia && receita.nomeFantasia.trim().length > 0
-            ? receita.nomeFantasia.trim()
-            : "Sem nome fantasia";
-
-        reg.razaoSocial = receita.razaoSocial || "";
-        reg.nomeFantasia = nomeFantasiaFront;
-        reg.municipio = receita.municipio || "";
-        reg.uf = receita.uf || "";
-        reg.dataConstituicao = receita.dataConstituicao || "";
-        reg.regimeTributario = receita.regimeTributario || "";
-        reg.capitalSocial = receita.capitalSocial || "";
-      } else {
-        console.warn(
-          "ReceitaWS (reconsulta só cadastro) falhou para",
-          reg.cnpj
-        );
-      }
-    } catch (err) {
-      console.error(
-        "Erro inesperado ao reconsultar só Receita para CNPJ",
-        reg.cnpj,
-        err
-      );
-    } finally {
-      processados++;
-      atualizarProgressoLote(processados, total);
-    }
-  }
-
-  salvarNoLocalStorage();
   renderizarTodos();
 }
 
-// ---------- MODAIS ----------
-const confirmRetryOverlay = document.getElementById("confirmRetryOverlay");
-const confirmRetryBtn = document.getElementById("confirmRetry");
-const cancelRetryBtn = document.getElementById("cancelRetry");
+// ---------- RECONSULTAR APENAS SELECIONADOS ----------
+async function reconsultarSelecionados() {
+  const linhas = Array.from(tableBody.querySelectorAll("tr")).filter(
+    (tr) => !tr.classList.contains("no-data-row")
+  );
 
-const confirmImportOverlay = document.getElementById("confirmImportOverlay");
-const confirmImportBtn = document.getElementById("confirmImport");
-const cancelImportBtn = document.getElementById("cancelImport");
-const confirmImportText = document.getElementById("confirmImportText");
+  const selecionados = [];
 
-// abrir modal de reconsulta ao clicar no botão
+  linhas.forEach((tr, idx) => {
+    const checkbox = tr.querySelector(".select-cnpj");
+    if (checkbox && checkbox.checked) {
+      const reg = registros[idx];
+      if (reg) selecionados.push(reg);
+    }
+  });
+
+  if (!selecionados.length) {
+    showInfoModal(
+      "Nenhum selecionado",
+      "Selecione pelo menos um CNPJ na tabela para reconsultar."
+    );
+    return;
+  }
+
+  let processados = 0;
+  const total = selecionados.length;
+  atualizarProgressoLote(0, total);
+
+  for (const reg of selecionados) {
+    try {
+      const dados = await consultarBackendCompleto(reg.cnpj, { force: true });
+      Object.assign(reg, dados);
+    } catch (err) {
+      console.error("Erro ao reconsultar selecionado", reg.cnpj, err);
+    } finally {
+      processados++;
+      atualizarProgressoLote(processados, total);
+    }
+  }
+
+  renderizarTodos();
+}
+
+// ---------- BOTÕES DE MODAIS ----------
 retryErrorsBtn.addEventListener("click", () => {
   confirmRetryOverlay.classList.remove("hidden");
 });
 
-// cancelar reconsulta
 cancelRetryBtn.addEventListener("click", () => {
   confirmRetryOverlay.classList.add("hidden");
 });
 
-// confirmar reconsulta -> chama a função real
 confirmRetryBtn.addEventListener("click", () => {
   confirmRetryOverlay.classList.add("hidden");
   reconsultarErros();
 });
 
-// cancelar importação
-cancelImportBtn.addEventListener("click", () => {
-  confirmImportOverlay.classList.add("hidden");
-});
-
-// confirmar importação
-confirmImportBtn.addEventListener("click", async () => {
-  confirmImportOverlay.classList.add("hidden");
-  await processarLoteCnpjs(window.cnpjsParaImportar);
-});
-
-// ---------- MODAL GENÉRICO (substitui alert) ----------
-const infoModal = document.getElementById("infoModal");
-const infoModalTitle = document.getElementById("infoModalTitle");
-const infoModalMessage = document.getElementById("infoModalMessage");
-const infoModalClose = document.getElementById("infoModalClose");
-
-function showInfoModal(title, message) {
-  infoModalTitle.textContent = title;
-  infoModalMessage.textContent = message;
-  infoModal.classList.remove("hidden");
-}
-
-infoModalClose.addEventListener("click", () => {
-  infoModal.classList.add("hidden");
-});
-
-// ---------- LIMPAR TABELA (COM MODAL BONITO) ----------
-const confirmClearOverlay = document.getElementById("confirmClearOverlay");
-const confirmClearBtn = document.getElementById("confirmClear");
-const cancelClearBtn = document.getElementById("cancelClear");
-
-// só abre o modal, NÃO limpa nada aqui
+// limpar tabela
 clearTableBtn.addEventListener("click", () => {
-  console.log("Cliquei em limpar -> abrindo modal");
   confirmClearOverlay.classList.remove("hidden");
 });
 
-// cancelar -> fecha o modal
 cancelClearBtn.addEventListener("click", () => {
   confirmClearOverlay.classList.add("hidden");
 });
 
-// confirmar -> limpa tabela + localStorage
 confirmClearBtn.addEventListener("click", () => {
-  console.log("Confirmado: limpando tabela e localStorage");
   registros = [];
-  salvarNoLocalStorage();
   renderizarTodos();
   atualizarProgressoLote(0, 0);
   confirmClearOverlay.classList.add("hidden");
 });
 
-// (opcional) fechar com ESC
+// ESC fecha modais
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     confirmClearOverlay.classList.add("hidden");
@@ -905,6 +639,7 @@ exportExcelBtn.addEventListener("click", () => {
 
   const data = [];
   data.push([
+    "Data da Consulta",
     "CNPJ",
     "Contribuinte",
     "Situação da Habilitação",
@@ -916,24 +651,27 @@ exportExcelBtn.addEventListener("click", () => {
     "UF",
     "Data de Constituição",
     "Regime Tributário",
+    "Data Opção Simples",
     "Capital Social",
   ]);
 
   rows.forEach((tr) => {
     const tds = tr.querySelectorAll("td");
     data.push([
-      tds[0].innerText,
-      tds[1].innerText,
-      tds[2].innerText,
-      tds[3].innerText,
-      tds[4].innerText,
-      tds[5].innerText,
-      tds[6].innerText,
-      tds[7].innerText,
-      tds[8].innerText,
-      tds[9].innerText,
-      tds[10].innerText,
-      tds[11].innerText,
+      tds[1].innerText, // Data da Consulta
+      tds[2].innerText, // CNPJ
+      tds[3].innerText, // Contribuinte
+      tds[4].innerText, // Situação
+      tds[5].innerText, // Data Situação
+      tds[6].innerText, // Submodalidade
+      tds[7].innerText, // Razão Social
+      tds[8].innerText, // Nome Fantasia
+      tds[9].innerText, // Município
+      tds[10].innerText, // UF
+      tds[11].innerText, // Data Constituição
+      tds[12].innerText, // Regime Tributário
+      tds[13].innerText, // Data Opção Simples
+      tds[14].innerText, // Capital Social  ✅ AGORA VAI
     ]);
   });
 
@@ -941,16 +679,155 @@ exportExcelBtn.addEventListener("click", () => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Habilitações");
 
-  XLSX.writeFile(wb, "habilitacoes_comercio_exterior.xlsx");
+  const hojeISO = new Date().toISOString().slice(0, 10);
+  let nomeArquivo = prompt(
+    "Digite um nome para o arquivo Excel (sem extensão):",
+    `habilitacoes_${hojeISO}`
+  );
+
+  if (!nomeArquivo || !nomeArquivo.trim()) {
+    nomeArquivo = `habilitacoes_${hojeISO}`;
+  }
+
+  XLSX.writeFile(wb, `${nomeArquivo.trim()}.xlsx`);
+
   showInfoModal(
     "Exportação concluída",
-    "Arquivo Excel gerado com sucesso: habilitacoes_comercio_exterior.xlsx"
+    `Arquivo Excel gerado com sucesso: ${nomeArquivo.trim()}.xlsx`
   );
 });
 
-// ---------- CARREGAR DADOS AO ABRIR A PÁGINA ----------
+// ---------- HISTÓRICO (simples: por data ou intervalo) ----------
+historyBtn.addEventListener("click", async () => {
+  const tipo = prompt(
+    "Digite 1 para histórico de um dia ou 2 para intervalo de datas:",
+    "1"
+  );
+
+  if (!tipo) return;
+
+  if (tipo === "1") {
+    const data = prompt("Informe a data (YYYY-MM-DD):", "");
+    if (!data) return;
+
+    try {
+      const resp = await fetch(
+        `${BACKEND_BASE_URL}/historico?data=${encodeURIComponent(data)}`
+      );
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const linhas = await resp.json();
+
+      if (!linhas.length) {
+        showInfoModal(
+          "Sem dados",
+          "Não há registros para a data informada no histórico."
+        );
+        return;
+      }
+
+      exportarHistoricoExcel(linhas, `historico_${data}`);
+    } catch (err) {
+      console.error("Erro histórico (dia único):", err);
+      showInfoModal(
+        "Erro histórico",
+        "Não foi possível carregar o histórico para a data informada."
+      );
+    }
+  } else if (tipo === "2") {
+    const from = prompt("Data inicial (YYYY-MM-DD):", "");
+    const to = prompt("Data final (YYYY-MM-DD):", "");
+    if (!from || !to) return;
+
+    try {
+      const url = `${BACKEND_BASE_URL}/historico?from=${encodeURIComponent(
+        from
+      )}&to=${encodeURIComponent(to)}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const linhas = await resp.json();
+
+      if (!linhas.length) {
+        showInfoModal("Sem dados", "Não há registros no intervalo informado.");
+        return;
+      }
+
+      exportarHistoricoExcel(linhas, `historico_${from}_a_${to}`);
+    } catch (err) {
+      console.error("Erro histórico (intervalo):", err);
+      showInfoModal(
+        "Erro histórico",
+        "Não foi possível carregar o histórico para o intervalo informado."
+      );
+    }
+  }
+});
+
+function exportarHistoricoExcel(linhas, nomeBase) {
+  const data = [];
+  data.push([
+    "Data da Consulta",
+    "CNPJ",
+    "Contribuinte",
+    "Situação da Habilitação",
+    "Data da Situação",
+    "Submodalidade",
+    "Razão Social",
+    "Nome Fantasia",
+    "Município",
+    "UF",
+    "Data de Constituição",
+    "Regime Tributário",
+    "Data Opção Simples",
+    "Capital Social",
+  ]);
+
+  linhas.forEach((r) => {
+    data.push([
+      formatarDataBR(r.dataConsulta),
+      r.cnpj,
+      r.contribuinte,
+      r.situacao,
+      r.dataSituacao,
+      r.submodalidade,
+      r.razaoSocial,
+      r.nomeFantasia,
+      r.municipio,
+      r.uf,
+      r.dataConstituicao,
+      r.regimeTributario,
+      r.dataOpcaoSimples,
+      r.capitalSocial,
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Histórico");
+
+  let nomeArquivo = prompt(
+    "Nome do arquivo histórico (sem extensão):",
+    nomeBase
+  );
+  if (!nomeArquivo || !nomeArquivo.trim()) {
+    nomeArquivo = nomeBase;
+  }
+
+  XLSX.writeFile(wb, `${nomeArquivo.trim()}.xlsx`);
+
+  showInfoModal(
+    "Histórico exportado",
+    `Arquivo Excel gerado com sucesso: ${nomeArquivo.trim()}.xlsx`
+  );
+}
+
+// ---------- BOTÃO: RECONSULTAR SELECIONADOS ----------
+retrySelectedBtn.addEventListener("click", () => {
+  reconsultarSelecionados();
+});
+
+// ---------- AO CARREGAR A PÁGINA ----------
 window.addEventListener("DOMContentLoaded", () => {
-  registros = carregarDoLocalStorage();
+  registros = [];
   renderizarTodos();
   atualizarProgressoLote(0, 0);
 });
