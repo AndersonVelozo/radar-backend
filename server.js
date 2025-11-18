@@ -73,7 +73,8 @@ function criarLinhaDOM(registro) {
 
   if (/DEFERIDA/.test(sitUpper)) {
     classeSituacao = "aprovado";
-  } else if (/DADOS INDISPONIVEIS/.test(sitUpper)) {
+  } else if (/DADOS INDISPON[ÍI]VEIS/.test(sitUpper)) {
+    // pega tanto INDISPONIVEIS quanto INDISPONÍVEIS
     classeSituacao = "indisponivel";
   } else if (
     /INDEFERIDA|CANCELADA|SUSPENSA|ERRO|N[ÃA]O HABILITADA/.test(sitUpper)
@@ -123,7 +124,7 @@ function adicionarLinhaTabela(
     cnpj: cnpj || "",
     contribuinte: contribuinte || "",
     situacao: situacao || "",
-    dataSituacao: dataSituucao || "",
+    dataSituacao: dataSituacao || "",
     submodalidade: submodalidade || "",
     razaoSocial: razaoSocial || "",
     nomeFantasia: nomeFantasia || "",
@@ -133,6 +134,8 @@ function adicionarLinhaTabela(
     regimeTributario: regimeTributario || "",
     capitalSocial: capitalSocial || "",
   };
+
+  console.log("Adicionando linha na tabela:", registro);
 
   registros.push(registro);
   criarLinhaDOM(registro);
@@ -196,21 +199,15 @@ fileInput.addEventListener("change", (event) => {
 
       const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
 
-      // ---- MENSAGEM 1: FILTRANDO ----
-      showInfoModal(
-        "Filtrando CNPJs...",
-        "Estamos analisando os CNPJs da planilha."
-      );
-
-      await new Promise((r) => setTimeout(r, 800));
-
-      // Extrair somente a primeira coluna
-      let cnpjs = rows
+      // 1) Lê todos os CNPJs (podendo ter repetidos)
+      const cnpjsRaw = rows
         .slice(1)
         .map((row) => normalizarCNPJ(String(row[0] || "")))
         .filter((c) => c.length > 0);
 
-      if (!cnpjs.length) {
+      const totalLidos = cnpjsRaw.length;
+
+      if (!totalLidos) {
         showInfoModal(
           "Planilha sem CNPJs",
           "Não foi possível encontrar CNPJs na primeira coluna da planilha."
@@ -218,28 +215,40 @@ fileInput.addEventListener("change", (event) => {
         return;
       }
 
-      // ---- MENSAGEM 2: REMOVENDO DUPLICADOS ----
-      showInfoModal(
-        "Removendo CNPJs repetidos...",
-        "CNPJs duplicados serão eliminados automaticamente."
+      // Mensagem de leitura
+      loteStatusEl.textContent = `Lendo planilha: ${totalLidos} CNPJs encontrados. Filtrando duplicados...`;
+
+      // 2) Remove duplicados mantendo a primeira ocorrência
+      const vistos = new Set();
+      const cnpjsUnicos = [];
+      let removidos = 0;
+
+      for (const c of cnpjsRaw) {
+        if (!vistos.has(c)) {
+          vistos.add(c);
+          cnpjsUnicos.push(c);
+        } else {
+          removidos++;
+        }
+      }
+
+      // Mensagens de filtragem
+      if (removidos > 0) {
+        loteStatusEl.textContent = `Filtrando CNPJs: ${totalLidos} encontrados, removendo ${removidos} CNPJ(s) repetido(s)...`;
+      } else {
+        loteStatusEl.textContent = `Filtrando CNPJs: ${totalLidos} encontrados, nenhum duplicado para remover.`;
+      }
+
+      console.log(
+        `CNPJs lidos: ${totalLidos} | Únicos: ${cnpjsUnicos.length} | Removidos: ${removidos}`
       );
 
-      await new Promise((r) => setTimeout(r, 800));
+      // 3) Guarda apenas os únicos para o processamento
+      window.cnpjsParaImportar = cnpjsUnicos;
 
-      // Remover duplicados
-      const unicos = [...new Set(cnpjs)];
-
-      // Guardar CNPJs finais para o processamento posterior
-      window.cnpjsParaImportar = unicos;
-
-      // ---- MOSTRAR MODAL DE CONFIRMAÇÃO ----
-      confirmImportText.textContent = `Foram encontrados ${unicos.length} CNPJs únicos. Deseja iniciar a consulta em lote (via API)?`;
-
-      // Fecha modal informativo e abre o principal
-      setTimeout(() => {
-        infoModal.classList.add("hidden");
-        confirmImportOverlay.classList.remove("hidden");
-      }, 600);
+      // 4) Abre modal de confirmação com a contagem de únicos
+      confirmImportText.textContent = `Foram encontrados ${cnpjsUnicos.length} CNPJs únicos. Deseja iniciar a consulta em lote (via API)?`;
+      confirmImportOverlay.classList.remove("hidden");
     } catch (err) {
       console.error(err);
       showInfoModal(
@@ -392,18 +401,22 @@ async function processarLoteCnpjs(cnpjs) {
         submodalidade = radar.submodalidade || "";
       }
 
-      // ------- CASO ESPECIAL: RADAR RESPONDEU MAS VEIO VAZIO -------
+      // Detecta se o RADAR veio "vazio"
       const nenhumCampoRadarPreenchido =
         !contribuinte && !situacao && !dataSituacao && !submodalidade;
 
+      // CASO ESPECIAL: RADAR respondeu mas não trouxe nada utilizável
       if (radar && nenhumCampoRadarPreenchido) {
-        // Marca explicitamente como DADOS INDISPONIVEIS,
-        // mas não força "ERRO" nem "NÃO HABILITADA"
-        situacao = "DADOS INDISPONIVEIS";
+        contribuinte = "DADOS INDISPONÍVEIS (RADAR)";
+        situacao = "DADOS INDISPONÍVEIS (RADAR)";
+        dataSituacao = "";
+        submodalidade = "";
       }
 
-      // ------- SE ALGUMA COISA DEU CERTO, NÃO É ERRO -------
-      if (radar || receita) {
+      // Houve pelo menos UMA resposta de alguma API?
+      const teveAlgumaResposta = !!(radar || receita);
+
+      if (teveAlgumaResposta) {
         adicionarLinhaTabela(
           cnpj,
           contribuinte,
@@ -782,12 +795,11 @@ async function reconsultarErros() {
   renderizarTodos();
 }
 
-// ---------- MODAL BONITO PARA RECONSULTAR ERROS ----------
+// ---------- MODAIS ----------
 const confirmRetryOverlay = document.getElementById("confirmRetryOverlay");
 const confirmRetryBtn = document.getElementById("confirmRetry");
 const cancelRetryBtn = document.getElementById("cancelRetry");
 
-// ---------- MODAL DE CONFIRMAR IMPORTAÇÃO ----------
 const confirmImportOverlay = document.getElementById("confirmImportOverlay");
 const confirmImportBtn = document.getElementById("confirmImport");
 const cancelImportBtn = document.getElementById("cancelImport");
@@ -814,7 +826,7 @@ cancelImportBtn.addEventListener("click", () => {
   confirmImportOverlay.classList.add("hidden");
 });
 
-// confirmar importação (já existia, mantido)
+// confirmar importação
 confirmImportBtn.addEventListener("click", async () => {
   confirmImportOverlay.classList.add("hidden");
   await processarLoteCnpjs(window.cnpjsParaImportar);
