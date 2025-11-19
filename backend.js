@@ -17,12 +17,13 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-mude-isso";
 
 const path = require("path");
 
-// Servir arquivos estáticos do front-end
-app.use(express.static(path.join(__dirname, "./public")));
-
+// Rota raiz: sempre ir para a tela de login
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "./public/login.html"));
+  res.sendFile(path.join(__dirname, "public", "login.html"));
 });
+
+// Arquivos estáticos (CSS, JS, outras páginas)
+app.use(express.static(path.join(__dirname, "public")));
 
 // ========== POSTGRES (Render) ==========
 const isRender = !!process.env.RENDER; // o Render seta isso automaticamente
@@ -310,11 +311,6 @@ function authMiddlewareAdmin(req, res, next) {
   }
   next();
 }
-
-// ========== ENDPOINT BÁSICO ==========
-app.get("/", (req, res) => {
-  res.json({ ok: true, msg: "Backend RADAR/ReceitaWS rodando" });
-});
 
 // ========== FUNÇÕES DE API (ReceitaWS / Radar) ==========
 
