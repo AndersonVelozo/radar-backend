@@ -21,9 +21,11 @@ const path = require("path");
 app.use(express.static(path.join(__dirname, "../public")));
 
 // ========== POSTGRES (Railway) ==========
+const isProduction = process.env.NODE_ENV === "production";
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: false, // Railway interno não precisa de SSL
+  ssl: isProduction ? { rejectUnauthorized: false } : false,
 });
 
 // cria tabelas se não existir + coluna extra do painel ADM
