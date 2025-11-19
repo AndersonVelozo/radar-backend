@@ -20,12 +20,14 @@ const path = require("path");
 // Servir arquivos estáticos do front-end
 app.use(express.static(path.join(__dirname, "../public")));
 
-// ========== POSTGRES (Railway) ==========
-const isProduction = process.env.NODE_ENV === "production";
+// ========== POSTGRES (Render) ==========
+const isRender = !!process.env.RENDER; // o Render seta isso automaticamente
+
+console.log("Iniciando Pool Postgres. RENDER =", isRender);
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: isProduction ? { rejectUnauthorized: false } : false,
+  ssl: isRender ? { rejectUnauthorized: false } : false,
 });
 
 // cria tabelas se não existir + coluna extra do painel ADM
