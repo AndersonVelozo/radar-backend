@@ -20,6 +20,10 @@ const path = require("path");
 // Servir arquivos estáticos do front-end
 app.use(express.static(path.join(__dirname, "../public")));
 
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "../public/login.html"));
+});
+
 // ========== POSTGRES (Render) ==========
 const isRender = !!process.env.RENDER; // o Render seta isso automaticamente
 
