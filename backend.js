@@ -554,7 +554,19 @@ app.post(
   authMiddlewareAdmin,
   async (req, res) => {
     try {
-      const { nome, email, senha, role, ativo, pode_lote } = req.body || {};
+      console.log("POST /admin/usuarios body:", req.body);
+
+      const {
+        nome,
+        email,
+        senha,
+        role,
+        perfil, // caso o front mande "perfil"
+        ativo,
+        status, // caso o front mande "status"
+        pode_lote,
+        podeLote, // caso o front mande em camelCase
+      } = req.body || {};
 
       if (!nome || !email || !senha) {
         return res
@@ -562,34 +574,60 @@ app.post(
           .json({ error: "Nome, e-mail e senha são obrigatórios." });
       }
 
-      const roleFinal = role === "admin" ? "admin" : "user";
-      const ativoFinal = typeof ativo === "boolean" ? ativo : true;
-      const podeLoteFinal = typeof pode_lote === "boolean" ? pode_lote : true;
+      // Normaliza role/perfil
+      const roleInput = String(role || perfil || "")
+        .toLowerCase()
+        .trim();
+
+      const roleFinal =
+        roleInput === "admin" ||
+        roleInput === "administrador" ||
+        roleInput === "adm"
+          ? "admin"
+          : "user";
+
+      // Normaliza "ativo" / "status"
+      const ativoRaw = ativo ?? status ?? true;
+      const ativoFinal =
+        typeof ativoRaw === "boolean"
+          ? ativoRaw
+          : String(ativoRaw).toLowerCase() !== "false";
+
+      // Normaliza pode_lote / podeLote
+      const podeLoteRaw = pode_lote ?? podeLote ?? true;
+      const podeLoteFinal =
+        typeof podeLoteRaw === "boolean"
+          ? podeLoteRaw
+          : String(podeLoteRaw).toLowerCase() !== "false";
 
       const sql = `
-      INSERT INTO usuarios (nome, email, senha_hash, role, ativo, pode_lote)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, nome, email, role, ativo, pode_lote, criado_em;
-    `;
+        INSERT INTO usuarios (nome, email, senha_hash, role, ativo, pode_lote)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id, nome, email, role, ativo, pode_lote, criado_em;
+      `;
 
       const { rows } = await pool.query(sql, [
         nome,
         email,
-        senha, // texto simples
+        String(senha).trim(), // senha em texto simples (mesmo esquema do login)
         roleFinal,
         ativoFinal,
         podeLoteFinal,
       ]);
 
-      res.status(201).json(rows[0]);
+      console.log("Usuário criado com sucesso:", rows[0]);
+      return res.status(201).json(rows[0]);
     } catch (err) {
       console.error("Erro POST /admin/usuarios:", err);
+
+      // Violação de UNIQUE (e-mail duplicado)
       if (err.code === "23505") {
         return res
           .status(400)
           .json({ error: "Já existe um usuário com esse e-mail." });
       }
-      res.status(500).json({ error: "Erro ao criar usuário" });
+
+      return res.status(500).json({ error: "Erro ao criar usuário" });
     }
   }
 );
