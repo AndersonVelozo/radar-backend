@@ -20,13 +20,10 @@ const path = require("path");
 // Servir arquivos estáticos do front-end
 app.use(express.static(path.join(__dirname, "../public")));
 
-// ========== POSTGRES ==========
+// ========== POSTGRES (Railway) ==========
 const pool = new Pool({
-  host: process.env.PGHOST,
-  port: Number(process.env.PGPORT || 5432),
-  user: process.env.PGUSER,
-  password: process.env.PGPASSWORD,
-  database: process.env.PGDATABASE,
+  connectionString: process.env.DATABASE_URL,
+  ssl: false, // no Railway interno não precisa de SSL
 });
 
 // cria tabelas se não existir + coluna extra do painel ADM
