@@ -18,10 +18,10 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev-secret-mude-isso";
 const path = require("path");
 
 // Servir arquivos estáticos do front-end
-app.use(express.static(path.join(__dirname, "../public")));
+app.use(express.static(path.join(__dirname, "./public")));
 
 app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/login.html"));
+  res.sendFile(path.join(__dirname, "./public/login.html"));
 });
 
 // ========== POSTGRES (Render) ==========
