@@ -526,6 +526,8 @@ app.get("/auth/me", authMiddleware, (req, res) => {
 
 // ================= PAINEL ADMIN – CRUD USUÁRIOS =================
 
+// ================= PAINEL ADMIN – CRUD USUÁRIOS =================
+
 // Listar todos os usuários (somente ADM)
 app.get(
   "/admin/usuarios",
@@ -534,20 +536,20 @@ app.get(
   async (req, res) => {
     try {
       const sql = `
-      SELECT id, nome, email, role, ativo, pode_lote, criado_em
-      FROM usuarios
-      ORDER BY id ASC;
-    `;
+        SELECT id, nome, email, role, ativo, pode_lote, criado_em
+        FROM usuarios
+        ORDER BY id ASC;
+      `;
       const { rows } = await pool.query(sql);
-      res.json(rows);
+      return res.json(rows);
     } catch (err) {
       console.error("Erro GET /admin/usuarios:", err);
-      res.status(500).json({ error: "Erro ao listar usuários" });
+      return res.status(500).json({ error: "Erro ao listar usuários" });
     }
   }
 );
 
-// Criar usuário (somente ADM)
+// Criar usuário (somente ADM) – versão robusta
 app.post(
   "/admin/usuarios",
   authMiddleware,
@@ -561,11 +563,11 @@ app.post(
         email,
         senha,
         role,
-        perfil, // caso o front mande "perfil"
+        perfil, // se o front mandar "perfil"
         ativo,
-        status, // caso o front mande "status"
+        status, // se o front mandar "status"
         pode_lote,
-        podeLote, // caso o front mande em camelCase
+        podeLote, // se vier em camelCase
       } = req.body || {};
 
       if (!nome || !email || !senha) {
@@ -574,7 +576,7 @@ app.post(
           .json({ error: "Nome, e-mail e senha são obrigatórios." });
       }
 
-      // Normaliza role/perfil
+      // normaliza role/perfil
       const roleInput = String(role || perfil || "")
         .toLowerCase()
         .trim();
@@ -586,14 +588,14 @@ app.post(
           ? "admin"
           : "user";
 
-      // Normaliza "ativo" / "status"
+      // normaliza ativo/status
       const ativoRaw = ativo ?? status ?? true;
       const ativoFinal =
         typeof ativoRaw === "boolean"
           ? ativoRaw
           : String(ativoRaw).toLowerCase() !== "false";
 
-      // Normaliza pode_lote / podeLote
+      // normaliza pode_lote/podeLote
       const podeLoteRaw = pode_lote ?? podeLote ?? true;
       const podeLoteFinal =
         typeof podeLoteRaw === "boolean"
@@ -609,7 +611,7 @@ app.post(
       const { rows } = await pool.query(sql, [
         nome,
         email,
-        String(senha).trim(), // senha em texto simples (mesmo esquema do login)
+        String(senha).trim(), // senha em texto simples (compatível com /auth/login)
         roleFinal,
         ativoFinal,
         podeLoteFinal,
@@ -620,8 +622,8 @@ app.post(
     } catch (err) {
       console.error("Erro POST /admin/usuarios:", err);
 
-      // Violação de UNIQUE (e-mail duplicado)
       if (err.code === "23505") {
+        // unique_violation (email)
         return res
           .status(400)
           .json({ error: "Já existe um usuário com esse e-mail." });
@@ -644,7 +646,17 @@ app.put(
         return res.status(400).json({ error: "ID inválido." });
       }
 
-      const { nome, email, senha, role, ativo, pode_lote } = req.body || {};
+      const {
+        nome,
+        email,
+        senha,
+        role,
+        perfil,
+        ativo,
+        status,
+        pode_lote,
+        podeLote,
+      } = req.body || {};
 
       const campos = [];
       const valores = [];
@@ -660,20 +672,38 @@ app.put(
       }
       if (senha !== undefined && senha !== "") {
         campos.push(`senha_hash = $${idx++}`);
-        valores.push(senha); // texto simples
+        valores.push(String(senha).trim());
       }
-      if (role !== undefined) {
-        const roleFinal = role === "admin" ? "admin" : "user";
+      if (role !== undefined || perfil !== undefined) {
+        const roleInput = String(role || perfil || "")
+          .toLowerCase()
+          .trim();
+        const roleFinal =
+          roleInput === "admin" ||
+          roleInput === "administrador" ||
+          roleInput === "adm"
+            ? "admin"
+            : "user";
         campos.push(`role = $${idx++}`);
         valores.push(roleFinal);
       }
-      if (typeof ativo === "boolean") {
+      if (ativo !== undefined || status !== undefined) {
+        const ativoRaw = ativo ?? status;
+        const ativoFinal =
+          typeof ativoRaw === "boolean"
+            ? ativoRaw
+            : String(ativoRaw).toLowerCase() !== "false";
         campos.push(`ativo = $${idx++}`);
-        valores.push(ativo);
+        valores.push(ativoFinal);
       }
-      if (typeof pode_lote === "boolean") {
+      if (pode_lote !== undefined || podeLote !== undefined) {
+        const podeLoteRaw = pode_lote ?? podeLote;
+        const podeLoteFinal =
+          typeof podeLoteRaw === "boolean"
+            ? podeLoteRaw
+            : String(podeLoteRaw).toLowerCase() !== "false";
         campos.push(`pode_lote = $${idx++}`);
-        valores.push(pode_lote);
+        valores.push(podeLoteFinal);
       }
 
       if (!campos.length) {
@@ -697,7 +727,7 @@ app.put(
         return res.status(404).json({ error: "Usuário não encontrado." });
       }
 
-      res.json(user);
+      return res.json(user);
     } catch (err) {
       console.error("Erro PUT /admin/usuarios/:id:", err);
       if (err.code === "23505") {
@@ -705,7 +735,7 @@ app.put(
           .status(400)
           .json({ error: "Já existe um usuário com esse e-mail." });
       }
-      res.status(500).json({ error: "Erro ao atualizar usuário" });
+      return res.status(500).json({ error: "Erro ao atualizar usuário" });
     }
   }
 );
@@ -736,13 +766,13 @@ app.delete(
         return res.status(404).json({ error: "Usuário não encontrado." });
       }
 
-      res.json({
+      return res.json({
         message: "Usuário desativado com sucesso.",
         usuario: user,
       });
     } catch (err) {
       console.error("Erro DELETE /admin/usuarios/:id:", err);
-      res.status(500).json({ error: "Erro ao desativar usuário" });
+      return res.status(500).json({ error: "Erro ao desativar usuário" });
     }
   }
 );
