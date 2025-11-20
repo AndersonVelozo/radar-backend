@@ -256,19 +256,15 @@ function formatarCapitalSocial(valorBruto) {
   return `R$ ${valorBruto}`;
 }
 
-// ========== MIDDLEWARES ==========
+/// ========== MIDDLEWARES ==========
 
 // body JSON
 app.use(express.json());
 
-// CORS
+// CORS ABERTO (pra resolver de vez o problema entre Render x Render)
 app.use(
   cors({
-    origin: [
-      "http://127.0.0.1:5500",
-      "http://localhost:5500",
-      "https://andersonvelozo.github.io",
-    ],
+    origin: true, // aceita qualquer origem
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })

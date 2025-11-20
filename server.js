@@ -7,6 +7,31 @@ const BACKEND_BASE_URL = isLocalHost
   ? "http://localhost:3000"
   : "https://radar-backend-omjv.onrender.com";
 
+function getToken() {
+  return (
+    localStorage.getItem("radar_token") ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    ""
+  );
+}
+
+function getCurrentUserName() {
+  const token = getToken();
+  if (!token) return "";
+
+  try {
+    const [, payloadBase64] = token.split(".");
+    const normalized = payloadBase64.replace(/-/g, "+").replace(/_/g, "/");
+    const json = atob(normalized);
+    const payload = JSON.parse(json);
+    return payload.nome || "";
+  } catch (err) {
+    console.error("Não foi possível ler o nome do usuário do token:", err);
+    return "";
+  }
+}
+
 // ---------- ELEMENTOS BÁSICOS ----------
 const cnpjInput = document.getElementById("cnpj");
 const rawText = document.getElementById("rawText");
@@ -22,6 +47,7 @@ const exportExcelBtn = document.getElementById("exportExcel");
 const retryErrorsBtn = document.getElementById("retryErrors");
 const retrySelectedBtn = document.getElementById("retrySelected");
 const historyBtn = document.getElementById("historyBtn");
+const selectAllCheckbox = document.getElementById("selectAll");
 
 const loteStatusEl = document.getElementById("loteStatus");
 const loteProgressBar = document.getElementById("loteProgressBar");
@@ -41,7 +67,6 @@ function removerLinhaVazia() {
 
 function formatarDataBR(dataISO) {
   if (!dataISO) return "";
-  // aceita Date, string yyyy-mm-dd, etc
   const d = new Date(dataISO);
   if (Number.isNaN(d.getTime())) return String(dataISO);
   const dia = String(d.getDate()).padStart(2, "0");
@@ -67,12 +92,18 @@ function criarLinhaDOM(registro) {
     classeSituacao = "negado";
   }
 
+  const cnpjCellValue = registro.cnpj || "";
+
   tr.innerHTML = `
-    <td>
-      <input type="checkbox" class="select-cnpj" />
+    <td style="text-align:center;">
+      <input
+        type="checkbox"
+        class="select-cnpj"
+        data-cnpj="${cnpjCellValue}"
+      />
     </td>
     <td>${registro.dataConsultaBR || ""}</td>
-    <td>${registro.cnpj || ""}</td>
+    <td>${cnpjCellValue}</td>
     <td>${registro.contribuinte || ""}</td>
     <td>
       <span class="tag ${classeSituacao}">
@@ -126,10 +157,45 @@ function renderizarTodos() {
     </tr>
   `;
 
-  if (!registros.length) return;
+  if (!registros.length) {
+    if (selectAllCheckbox) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+    }
+    return;
+  }
 
   removerLinhaVazia();
   registros.forEach((r) => criarLinhaDOM(r));
+
+  // reseta estado do "selecionar todos" ao re-renderizar
+  if (selectAllCheckbox) {
+    selectAllCheckbox.checked = false;
+    selectAllCheckbox.indeterminate = false;
+  }
+}
+
+// helper: pega CNPJs selecionados na tabela
+function getCnpjsSelecionados() {
+  const selecionados = [];
+  const linhas = Array.from(tableBody.querySelectorAll("tr:not(.no-data-row)"));
+
+  linhas.forEach((tr) => {
+    const chk = tr.querySelector(".select-cnpj");
+    if (chk && chk.checked) {
+      // pega pelo atributo data-cnpj ou pela coluna do CNPJ
+      const cnpjAttr = chk.dataset.cnpj;
+      let cnpj = cnpjAttr || "";
+      if (!cnpj) {
+        const cnpjCell = tr.children[2];
+        if (cnpjCell) cnpj = cnpjCell.textContent || "";
+      }
+      cnpj = normalizarCNPJ(cnpj);
+      if (cnpj) selecionados.push(cnpj);
+    }
+  });
+
+  return selecionados;
 }
 
 // ---------- PROGRESSO DO LOTE ----------
@@ -275,13 +341,37 @@ confirmImportBtn.addEventListener("click", async () => {
 });
 
 // ---------- CONSULTA COMPLETA NO BACKEND ----------
-async function consultarBackendCompleto(cnpj, { force = false } = {}) {
+async function consultarBackendCompleto(
+  cnpj,
+  { force = false, origem = "unitaria" } = {}
+) {
   const url = new URL(`${BACKEND_BASE_URL}/consulta-completa`);
   url.searchParams.set("cnpj", cnpj);
   if (force) url.searchParams.set("force", "1");
+  if (origem) url.searchParams.set("origem", origem);
 
-  const resp = await fetch(url.toString());
+  const token = getToken();
+  if (!token) {
+    showInfoModal(
+      "Sessão expirada",
+      "Você precisa estar logado para consultar. Faça login novamente."
+    );
+    throw new Error("Sem token");
+  }
+
+  const resp = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
   if (!resp.ok) {
+    if (resp.status === 401) {
+      showInfoModal(
+        "Sessão expirada",
+        "Seu login expirou ou é inválido. Faça login novamente."
+      );
+    }
     throw new Error(`Erro ao consultar backend: HTTP ${resp.status}`);
   }
 
@@ -328,7 +418,8 @@ async function processarLoteCnpjs(cnpjs) {
 
   for (const cnpj of cnpjs) {
     try {
-      const dados = await consultarBackendCompleto(cnpj);
+      const dados = await consultarBackendCompleto(cnpj, { origem: "lote" });
+
       adicionarLinhaTabela(dados);
     } catch (err) {
       console.error("Erro inesperado no lote para", cnpj, err);
@@ -434,8 +525,6 @@ extractAddBtn.addEventListener("click", async () => {
   try {
     const extras = await consultarBackendCompleto(cnpj);
 
-    // sobrescreve com o que veio do texto RADAR (habilitação),
-    // mantendo cadastro vindo do backend
     const dados = {
       ...extras,
       contribuinte,
@@ -474,7 +563,7 @@ extractAddBtn.addEventListener("click", async () => {
   }
 });
 
-// ---------- RECONSULTAR ERROS (lógica antiga, mas usando /consulta-completa) ----------
+// ---------- RECONSULTAR ERROS ----------
 async function reconsultarErros() {
   const temHabilitacao = (r) =>
     !!(
@@ -542,21 +631,9 @@ async function reconsultarErros() {
 
 // ---------- RECONSULTAR APENAS SELECIONADOS ----------
 async function reconsultarSelecionados() {
-  const linhas = Array.from(tableBody.querySelectorAll("tr")).filter(
-    (tr) => !tr.classList.contains("no-data-row")
-  );
+  const cnpjsSelecionados = getCnpjsSelecionados();
 
-  const selecionados = [];
-
-  linhas.forEach((tr, idx) => {
-    const checkbox = tr.querySelector(".select-cnpj");
-    if (checkbox && checkbox.checked) {
-      const reg = registros[idx];
-      if (reg) selecionados.push(reg);
-    }
-  });
-
-  if (!selecionados.length) {
+  if (!cnpjsSelecionados.length) {
     showInfoModal(
       "Nenhum selecionado",
       "Selecione pelo menos um CNPJ na tabela para reconsultar."
@@ -564,13 +641,20 @@ async function reconsultarSelecionados() {
     return;
   }
 
+  const registrosSelecionados = registros.filter((r) =>
+    cnpjsSelecionados.includes(normalizarCNPJ(r.cnpj))
+  );
+
   let processados = 0;
-  const total = selecionados.length;
+  const total = registrosSelecionados.length;
   atualizarProgressoLote(0, total);
 
-  for (const reg of selecionados) {
+  for (const reg of registrosSelecionados) {
     try {
-      const dados = await consultarBackendCompleto(reg.cnpj, { force: true });
+      const dados = await consultarBackendCompleto(reg.cnpj, {
+        force: true,
+        origem: "lote",
+      });
       Object.assign(reg, dados);
     } catch (err) {
       console.error("Erro ao reconsultar selecionado", reg.cnpj, err);
@@ -671,7 +755,7 @@ exportExcelBtn.addEventListener("click", () => {
       tds[11].innerText, // Data Constituição
       tds[12].innerText, // Regime Tributário
       tds[13].innerText, // Data Opção Simples
-      tds[14].innerText, // Capital Social  ✅ AGORA VAI
+      tds[14].innerText, // Capital Social
     ]);
   });
 
@@ -679,26 +763,46 @@ exportExcelBtn.addEventListener("click", () => {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Habilitações");
 
+  // 🔹 pega data e nome do usuário
   const hojeISO = new Date().toISOString().slice(0, 10);
-  let nomeArquivo = prompt(
+  const userName = getCurrentUserName(); // 👈 usa o nome do token
+
+  // 🔹 pergunta o nome base da planilha
+  let baseName = prompt(
     "Digite um nome para o arquivo Excel (sem extensão):",
-    `habilitacoes_${hojeISO}`
+    `planilha_habilitacoes_${hojeISO}`
   );
 
-  if (!nomeArquivo || !nomeArquivo.trim()) {
-    nomeArquivo = `habilitacoes_${hojeISO}`;
+  if (!baseName || !baseName.trim()) {
+    baseName = `habilitacoes_${hojeISO}`;
   }
 
-  XLSX.writeFile(wb, `${nomeArquivo.trim()}.xlsx`);
+  // 🔹 adiciona @NomeDoUsuario automaticamente
+  let finalName = baseName.trim();
+  if (userName) {
+    finalName += ` @${userName}`;
+  }
+
+  // 🔹 exporta o arquivo
+  XLSX.writeFile(wb, `${finalName}.xlsx`);
 
   showInfoModal(
     "Exportação concluída",
-    `Arquivo Excel gerado com sucesso: ${nomeArquivo.trim()}.xlsx`
+    `Arquivo Excel gerado com sucesso:<br><strong>${finalName}.xlsx</strong>`
   );
 });
 
-// ---------- HISTÓRICO (simples: por data ou intervalo) ----------
+// ---------- HISTÓRICO ----------
 historyBtn.addEventListener("click", async () => {
+  const token = getToken();
+  if (!token) {
+    showInfoModal(
+      "Sessão expirada",
+      "Você precisa estar logado para consultar o histórico."
+    );
+    return;
+  }
+
   const tipo = prompt(
     "Digite 1 para histórico de um dia ou 2 para intervalo de datas:",
     "1"
@@ -712,7 +816,12 @@ historyBtn.addEventListener("click", async () => {
 
     try {
       const resp = await fetch(
-        `${BACKEND_BASE_URL}/historico?data=${encodeURIComponent(data)}`
+        `${BACKEND_BASE_URL}/historico?data=${encodeURIComponent(
+          data
+        )}&registrarExport=1`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
       );
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const linhas = await resp.json();
@@ -741,8 +850,11 @@ historyBtn.addEventListener("click", async () => {
     try {
       const url = `${BACKEND_BASE_URL}/historico?from=${encodeURIComponent(
         from
-      )}&to=${encodeURIComponent(to)}`;
-      const resp = await fetch(url);
+      )}&to=${encodeURIComponent(to)}&registrarExport=1`;
+
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const linhas = await resp.json();
 
@@ -824,6 +936,42 @@ function exportarHistoricoExcel(linhas, nomeBase) {
 retrySelectedBtn.addEventListener("click", () => {
   reconsultarSelecionados();
 });
+
+// ---------- SELECT ALL ----------
+if (selectAllCheckbox) {
+  // clicar no header marca/desmarca todos
+  selectAllCheckbox.addEventListener("change", () => {
+    const marcado = selectAllCheckbox.checked;
+    tableBody
+      .querySelectorAll(".select-cnpj")
+      .forEach((chk) => (chk.checked = marcado));
+  });
+
+  // atualizar estado do selectAll quando marcar/desmarcar linha
+  tableBody.addEventListener("change", (e) => {
+    if (!e.target.classList.contains("select-cnpj")) return;
+
+    const boxes = tableBody.querySelectorAll(".select-cnpj");
+    const marcados = tableBody.querySelectorAll(".select-cnpj:checked");
+
+    if (!boxes.length) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+      return;
+    }
+
+    if (marcados.length === boxes.length) {
+      selectAllCheckbox.checked = true;
+      selectAllCheckbox.indeterminate = false;
+    } else if (marcados.length === 0) {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = false;
+    } else {
+      selectAllCheckbox.checked = false;
+      selectAllCheckbox.indeterminate = true;
+    }
+  });
+}
 
 // ---------- AO CARREGAR A PÁGINA ----------
 window.addEventListener("DOMContentLoaded", () => {
